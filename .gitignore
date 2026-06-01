@@ -1,0 +1,33 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+
+# Local runtime data
+/tmp/
+.tmp/
+.planning/
+.bili-example/
+/docs/
+*.log
+content/daily/*.md
+!content/daily/.gitkeep
+!content/daily/2026-05-28.md
+!content/daily/2026-05-30.md
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Docker/local override files
+docker-compose.override.yml

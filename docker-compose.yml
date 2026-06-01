@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    container_name: m-daily-news
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      WORKSPACE: /workspace
+      PORT: "8080"
+      DEEPSEEK_MODEL: deepseek-v4-flash
+      SCHEDULE_DAILY: "09:00"
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8080}:8080"
+    volumes:
+      - ./content:/workspace/content
+    mem_limit: 96m
