@@ -12,9 +12,10 @@ import (
 
 var (
 	ErrInvalidMarkdown = errors.New("invalid daily markdown")
-	itemRE             = regexp.MustCompile(`(?m)^\d+\.\s+`)
+	itemHeadingRE      = regexp.MustCompile(`(?m)^##\s+\S`)
 	linkRE             = regexp.MustCompile(`https?://[^\s)]+`)
 	htmlRE             = regexp.MustCompile(`(?i)<\s*/?\s*[a-z][^>]*>`)
+	bulletRE           = regexp.MustCompile(`(?m)^\s*[-*]\s+\S`)
 	itemLabels         = []string{"URL", "来源", "发布日期", "类型", "摘要", "为什么重要", "不确定性/风险"}
 )
 
@@ -44,7 +45,10 @@ func Validate(raw, expectedDate string) error {
 	if strings.TrimSpace(fm.Summary) == "" {
 		return fmt.Errorf("%w: summary required", ErrInvalidMarkdown)
 	}
-	if len([]rune(fm.Summary)) > 120 {
+	if len([]rune(fm.Summary)) < 50 {
+		return fmt.Errorf("%w: summary too short", ErrInvalidMarkdown)
+	}
+	if len([]rune(fm.Summary)) > 220 {
 		return fmt.Errorf("%w: summary too long", ErrInvalidMarkdown)
 	}
 	if len(fm.Tags) == 0 {
@@ -55,6 +59,9 @@ func Validate(raw, expectedDate string) error {
 	}
 	if strings.Contains(strings.ToLower(body), "javascript:") {
 		return fmt.Errorf("%w: javascript links are not allowed", ErrInvalidMarkdown)
+	}
+	if bulletRE.MatchString(body) {
+		return fmt.Errorf("%w: bullet lists are not allowed", ErrInvalidMarkdown)
 	}
 	sections := splitItemSections(body)
 	if count := len(sections); count < 3 || count > 6 {
@@ -67,6 +74,9 @@ func Validate(raw, expectedDate string) error {
 			if !hasItemLabel(section, label) {
 				return fmt.Errorf("%w: item missing %s", ErrInvalidMarkdown, label)
 			}
+		}
+		if len([]rune(labelValue(section, "摘要"))) < 60 {
+			return fmt.Errorf("%w: item summary too short", ErrInvalidMarkdown)
 		}
 		links := linkRE.FindAllString(section, -1)
 		if len(links) == 0 {
@@ -91,8 +101,21 @@ func hasItemLabel(section, label string) bool {
 	return strings.Contains(section, label+":") || strings.Contains(section, label+"：")
 }
 
+func labelValue(section, label string) string {
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "- "))
+		for _, sep := range []string{":", "："} {
+			prefix := label + sep
+			if strings.HasPrefix(line, prefix) {
+				return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+			}
+		}
+	}
+	return ""
+}
+
 func splitItemSections(body string) []string {
-	indexes := itemRE.FindAllStringIndex(body, -1)
+	indexes := itemHeadingRE.FindAllStringIndex(body, -1)
 	if len(indexes) == 0 {
 		return nil
 	}

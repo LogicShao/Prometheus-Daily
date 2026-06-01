@@ -113,6 +113,8 @@ func buildUserPrompt(date string, results []search.Result) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "请根据以下搜索结果生成 %s 的 AI 技术日报 Markdown。\n", date)
 	fmt.Fprintf(&b, "优先选择跨类型、跨来源的 3 到 6 条内容，避免同一公司或同一域名占比过高。\n\n")
+	fmt.Fprintf(&b, "输出风格要求：frontmatter 的 summary 要写成完整摘要；正文用 `# 日报 YYYY-MM-DD` + `## 标题` 的段落式结构，不要使用有序列表或项目符号列表。\n")
+	fmt.Fprintf(&b, "每条新闻都要用自然段写清楚事实、摘要、为什么重要、不确定性/风险，信息要比搜索结果更完整。\n\n")
 	for i, result := range results {
 		if i >= 20 {
 			break

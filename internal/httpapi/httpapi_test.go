@@ -51,10 +51,29 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("total=%d, want 1", list.Total)
 	}
 
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/daily/2026-05-30", nil)
+	detailResp := httptest.NewRecorder()
+	router.ServeHTTP(detailResp, detailReq)
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", detailResp.Code, detailResp.Body.String())
+	}
+	var detail struct {
+		Date    string   `json:"date"`
+		Summary string   `json:"summary"`
+		Tags    []string `json:"tags"`
+		Body    string   `json:"body"`
+	}
+	if err := json.Unmarshal(detailResp.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("detail json: %v", err)
+	}
+	if detail.Date != "2026-05-30" || detail.Summary != apiSummary || len(detail.Tags) != 2 || !strings.Contains(detail.Body, "## API generated item") {
+		t.Fatalf("unexpected detail %#v", detail)
+	}
+
 	rawReq := httptest.NewRequest(http.MethodGet, "/api/daily/2026-05-30/raw", nil)
 	rawResp := httptest.NewRecorder()
 	router.ServeHTTP(rawResp, rawReq)
-	if rawResp.Code != http.StatusOK || !strings.Contains(rawResp.Body.String(), "API generated") {
+	if rawResp.Code != http.StatusOK || !strings.Contains(rawResp.Body.String(), "## API generated item") {
 		t.Fatalf("raw status=%d body=%s", rawResp.Code, rawResp.Body.String())
 	}
 }
@@ -74,35 +93,51 @@ type apiLLM struct{}
 func (apiLLM) WriteDaily(_ context.Context, date string, _ []search.Result) (string, error) {
 	return `---
 date: ` + date + `
-summary: "API generated"
+summary: "` + apiSummary + `"
 tags: [AI, Agent]
 ---
 
-1. API generated item
-   - URL: https://example.com/api
-   - 来源: Example
-   - 发布日期: ` + date + `
-   - 类型: 产品
-   - 摘要: Generated content.
-   - 为什么重要: It validates the API generation flow.
-   - 不确定性/风险: No obvious risk.
+# 日报 ` + date + `
 
-2. API generated item 2
-   - URL: https://news.ycombinator.com/item?id=3
-   - 来源: Hacker News
-   - 发布日期: ` + date + `
-   - 类型: 产业
-   - 摘要: Generated content.
-   - 为什么重要: It validates source diversity.
-   - 不确定性/风险: No obvious risk.
+## API generated item
 
-3. API generated item 3
-   - URL: https://openai.com/index/api-generated
-   - 来源: OpenAI
-   - 发布日期: ` + date + `
-   - 类型: 研究
-   - 摘要: Generated content.
-   - 为什么重要: It validates category coverage.
-   - 不确定性/风险: No obvious risk.
+URL: https://example.com/api
+来源: Example
+发布日期: ` + date + `
+类型: 产品
+
+摘要: Generated content now uses a readable paragraph format that carries enough detail for the API generation flow.
+
+为什么重要: It validates the API generation flow while keeping the report body suitable for frontend reading.
+
+不确定性/风险: No obvious risk, but generated API results should still be validated before publishing.
+
+## API generated item 2
+
+URL: https://news.ycombinator.com/item?id=3
+来源: Hacker News
+发布日期: ` + date + `
+类型: 产业
+
+摘要: Generated content now includes source diversity in a paragraph format, so the report does not collapse into a mechanical list.
+
+为什么重要: It validates source diversity and ensures multiple domains are represented in the API flow.
+
+不确定性/风险: No obvious risk, but external summaries can become stale and should be checked when reused.
+
+## API generated item 3
+
+URL: https://openai.com/index/api-generated
+来源: OpenAI
+发布日期: ` + date + `
+类型: 研究
+
+摘要: Generated content now includes category coverage in a paragraph format, preserving validation without sacrificing readability.
+
+为什么重要: It validates category coverage and confirms the structured detail endpoint returns the expected Markdown body.
+
+不确定性/风险: No obvious risk, but research claims should still be checked against primary sources.
 `, nil
 }
+
+const apiSummary = "API generated summary now carries enough detail to represent the report and prove frontmatter metadata is returned correctly."

@@ -264,6 +264,62 @@
       box-shadow: var(--shadow);
     }
 
+    .report-meta {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 24px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .report-meta-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .report-meta-label {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .report-meta-date {
+      color: var(--muted-strong);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .report-meta-summary {
+      margin: 0;
+      color: var(--muted-strong);
+      font-size: 14px;
+      line-height: 1.76;
+    }
+
+    .report-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .report-tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid rgba(45, 212, 191, .20);
+      border-radius: 999px;
+      color: var(--accent);
+      background: rgba(45, 212, 191, .08);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
     .reader h1,
     .reader h2,
     .reader h3 {
@@ -490,16 +546,54 @@
 
     async function loadDaily(date) {
       currentDate = date;
-      const res = await fetch(`/api/daily/${date}/raw`);
+      const res = await fetch(`/api/daily/${date}`);
       if (!res.ok) {
         showToast("加载失败", "error");
         return;
       }
-      const raw = await res.text();
-      const body = stripFrontmatter(raw);
-      document.getElementById("currentTitle").textContent = date;
-      document.getElementById("content").innerHTML = DOMPurify.sanitize(marked.parse(body));
+      const data = await res.json();
+      document.getElementById("currentTitle").textContent = `日报 ${data.date || date}`;
+      renderDaily(data);
       await loadList();
+    }
+
+    function renderDaily(data) {
+      const content = document.getElementById("content");
+      const meta = document.createElement("section");
+      meta.className = "report-meta";
+
+      const metaTop = document.createElement("div");
+      metaTop.className = "report-meta-top";
+
+      const label = document.createElement("span");
+      label.className = "report-meta-label";
+      label.textContent = "元信息";
+
+      const date = document.createElement("span");
+      date.className = "report-meta-date";
+      date.textContent = `报告日期 ${data.date || currentDate}`;
+
+      const summary = document.createElement("p");
+      summary.className = "report-meta-summary";
+      summary.textContent = data.summary || "暂无摘要";
+
+      const tags = document.createElement("div");
+      tags.className = "report-tags";
+      (data.tags || []).forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "report-tag";
+        chip.textContent = tag;
+        tags.appendChild(chip);
+      });
+
+      metaTop.append(label, date);
+      meta.append(metaTop, summary, tags);
+
+      const body = document.createElement("div");
+      body.className = "report-body";
+      body.innerHTML = DOMPurify.sanitize(marked.parse(data.body || ""));
+
+      content.replaceChildren(meta, body);
     }
 
     {{if .Admin}}
@@ -542,12 +636,6 @@
       badge.classList.toggle("running", Boolean(data.running));
       document.getElementById("statusText").textContent = data.running ? "生成中" : "就绪";
       document.getElementById("statusTime").textContent = data.last_run ? new Date(data.last_run).toLocaleString("zh-CN") : "";
-    }
-
-    function stripFrontmatter(raw) {
-      if (!raw.startsWith("---\n")) return raw;
-      const end = raw.indexOf("\n---\n", 4);
-      return end >= 0 ? raw.slice(end + 5).trim() : raw;
     }
 
     function showToast(message, type) {

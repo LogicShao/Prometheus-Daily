@@ -140,11 +140,7 @@ func (s *Store) summary(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	summary := []rune(fm.Summary)
-	if len(summary) > 60 {
-		return string(summary[:60]) + "...", nil
-	}
-	return fm.Summary, nil
+	return strings.TrimSpace(fm.Summary), nil
 }
 
 func ExtractSummary(raw string) string {
