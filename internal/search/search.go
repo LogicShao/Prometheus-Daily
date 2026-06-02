@@ -83,10 +83,10 @@ func (s *Service) SearchDailySources(ctx context.Context, date string) ([]Result
 func dailyQuerySpecs() []querySpec {
 	return []querySpec{
 		{Query: "AI LLM agent research paper arxiv 大模型 研究 论文", Category: CategoryResearch},
-		{Query: "AI developer tools model platform release 大模型 产品 发布", Category: CategoryProduct},
-		{Query: "AI agent LLM open source GitHub 开源 框架", Category: CategoryOpenSource},
-		{Query: "AI agent LLM security vulnerability prompt injection 安全 风险", Category: CategorySecurity},
-		{Query: "AI industry enterprise adoption model platform 产业 落地 合作", Category: CategoryIndustry},
+		{Query: "AI developer tools API SDK model platform release 工具 平台 API 发布", Category: CategoryProduct},
+		{Query: "AI agent LLM open source GitHub framework repository 开源 框架 仓库", Category: CategoryOpenSource},
+		{Query: "AI agent LLM security vulnerability prompt injection database 安全 漏洞 数据库", Category: CategorySecurity},
+		{Query: "AI production engineering case study architecture benchmark enterprise 工程 实践 架构 评测", Category: CategoryIndustry},
 	}
 }
 
@@ -190,6 +190,47 @@ func dedupe(results []Result) []Result {
 	return out
 }
 
+func technicalSignalScore(result Result) int {
+	text := strings.ToLower(strings.Join([]string{
+		result.Title,
+		result.Snippet,
+		result.URL,
+		result.Source,
+	}, " "))
+
+	score := 0
+	switch result.Category {
+	case CategoryResearch, CategoryOpenSource, CategorySecurity:
+		score += 2
+	case CategoryProduct:
+		score += 1
+	case CategoryIndustry:
+		score -= 1
+	}
+	if containsAny(text,
+		"github.com", "github.blog/changelog", "arxiv.org", "cve", "security advisory",
+		"vulnerability", "prompt injection", "database", "repository", "open source",
+		"benchmark", "paper", "architecture", "inference", "training",
+		"漏洞", "提示注入", "数据库", "仓库", "开源", "论文", "基准", "架构", "推理", "训练",
+	) {
+		score += 3
+	}
+	if containsAny(text,
+		"api", "sdk", "framework", "agent", "llm", "copilot", "developer tool",
+		"model", "evaluation", "研究", "评测", "模型", "工具", "框架", "开发者", "代码",
+	) {
+		score += 1
+	}
+	if containsAny(text,
+		"political advocacy", "policy", "政策", "政治", "倡导", "战略合作", "合作协议",
+		"融资", "榜单", "排名", "测评报告", "企业测评", "产业规模", "市场规模",
+		"标杆企业", "商业化能力", "养猪", "生猪", "猪场", "营收", "股价",
+	) {
+		score -= 4
+	}
+	return score
+}
+
 func canonicalURL(raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -222,6 +263,10 @@ func sortResults(results []Result) []Result {
 	copy(out, results)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
+		aScore, bScore := technicalSignalScore(a), technicalSignalScore(b)
+		if aScore != bScore {
+			return aScore > bScore
+		}
 		if !a.PublishedAt.IsZero() && !b.PublishedAt.IsZero() && !a.PublishedAt.Equal(b.PublishedAt) {
 			return a.PublishedAt.After(b.PublishedAt)
 		}
@@ -266,7 +311,7 @@ func selectBalancedResults(results []Result, maxPerDomain, maxPerCategory, maxTo
 			category = CategoryIndustry
 			result.Category = category
 		}
-		if categoryCount[category] >= maxPerCategory {
+		if categoryCount[category] >= categoryLimit(category, maxPerCategory) {
 			continue
 		}
 		hostCount[host]++
@@ -274,6 +319,13 @@ func selectBalancedResults(results []Result, maxPerDomain, maxPerCategory, maxTo
 		out = append(out, result)
 	}
 	return out
+}
+
+func categoryLimit(category string, maxPerCategory int) int {
+	if category == CategoryIndustry && maxPerCategory > 1 {
+		return 1
+	}
+	return maxPerCategory
 }
 
 func uniqueCategories(results []Result) map[string]struct{} {

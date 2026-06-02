@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSearchProvidersAnnotatesQueryCategory(t *testing.T) {
@@ -50,6 +51,31 @@ func TestSearchProvidersInfersRSSCategory(t *testing.T) {
 	}
 }
 
+func TestSortResultsPrefersTechnicalSignal(t *testing.T) {
+	now := time.Now()
+	results := []Result{
+		{
+			Title:       "牧原股份与阿里云签署战略合作协议共建养猪大模型",
+			URL:         "https://industry.example.com/pig",
+			Snippet:     "合作协议覆盖猪场应用和产业落地。",
+			Category:    CategoryIndustry,
+			PublishedAt: now,
+		},
+		{
+			Title:       "GitHub Copilot evaluation models support developer code completion",
+			URL:         "https://github.blog/changelog/copilot-evaluation-models",
+			Snippet:     "Developer tools and code completion model update.",
+			Category:    CategoryProduct,
+			PublishedAt: now.Add(-time.Hour),
+		},
+	}
+
+	selected := sortResults(results)
+	if selected[0].Category == CategoryIndustry {
+		t.Fatalf("low-signal industry item ranked first: %#v", selected)
+	}
+}
+
 func TestSelectBalancedResultsLimitsDomainsAndCategories(t *testing.T) {
 	results := []Result{
 		{Title: "Product 1", URL: "https://a.example.com/1", Category: CategoryProduct},
@@ -77,6 +103,26 @@ func TestSelectBalancedResultsLimitsDomainsAndCategories(t *testing.T) {
 		if categoryCount[result.Category] > 2 {
 			t.Fatalf("category %s selected too often: %#v", result.Category, selected)
 		}
+	}
+}
+
+func TestSelectBalancedResultsLimitsIndustryFrequency(t *testing.T) {
+	results := []Result{
+		{Title: "Industry 1", URL: "https://industry-a.example.com/1", Category: CategoryIndustry},
+		{Title: "Industry 2", URL: "https://industry-b.example.com/2", Category: CategoryIndustry},
+		{Title: "Product", URL: "https://product.example.com/1", Category: CategoryProduct},
+		{Title: "Security", URL: "https://security.example.com/1", Category: CategorySecurity},
+	}
+
+	selected := selectBalancedResults(results, 2, 5, 10)
+	industryCount := 0
+	for _, result := range selected {
+		if result.Category == CategoryIndustry {
+			industryCount++
+		}
+	}
+	if industryCount != 1 {
+		t.Fatalf("industryCount=%d, want 1: %#v", industryCount, selected)
 	}
 }
 
