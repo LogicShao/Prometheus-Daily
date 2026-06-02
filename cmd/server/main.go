@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -17,6 +18,7 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(log.Writer(), &slog.HandlerOptions{Level: slog.LevelInfo})))
 	cfg := config.FromEnv()
 	if err := cfg.ValidateRuntime(); err != nil {
 		log.Fatal(err)
@@ -47,10 +49,10 @@ func main() {
 			log.Fatal(err)
 		}
 		scheduler.NewDaily(runner, at).Start(context.Background())
-		log.Printf("daily scheduler enabled at %s", cfg.ScheduleDaily)
+		slog.Info("daily scheduler enabled", "time", cfg.ScheduleDaily)
 	}
 
-	log.Printf("m-daily-news listening on :%s workspace=%s", cfg.Port, cfg.Workspace)
+	slog.Info("m-daily-news listening", "port", cfg.Port, "workspace", cfg.Workspace)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, router))
 }
 
