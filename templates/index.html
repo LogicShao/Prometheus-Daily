@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Prometheus Daily</title>
+  <link rel="alternate" type="application/rss+xml" title="Prometheus Daily RSS" href="/feed.xml">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -74,6 +75,42 @@
       margin-top: 7px;
       color: var(--muted);
       font-size: 13px;
+    }
+
+    .brand-links {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand-link {
+      min-width: 0;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted-strong);
+      background: var(--surface-soft);
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .brand-link:hover,
+    .brand-link.active {
+      color: var(--accent);
+      border-color: rgba(45, 212, 191, .32);
+      background: rgba(45, 212, 191, .08);
+    }
+
+    .brand-link .icon {
+      width: 15px;
+      height: 15px;
     }
 
     .side-actions {
@@ -400,6 +437,37 @@
       margin-bottom: 12px;
     }
 
+    .about-section {
+      display: grid;
+      gap: 22px;
+    }
+
+    .about-section h1 {
+      margin-bottom: 8px;
+    }
+
+    .about-section h2 {
+      margin-top: 14px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .about-lead {
+      margin: 0;
+      color: var(--muted-strong);
+      font-size: 16px;
+      line-height: 1.82;
+    }
+
+    .about-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
     .toast {
       position: fixed;
       top: 18px;
@@ -494,6 +562,20 @@
       <h1 class="brand-name">Prometheus Daily</h1>
       <div class="brand-subtitle">普罗米修斯日报</div>
     </header>
+    <nav class="brand-links" aria-label="主导航">
+      <a class="brand-link {{if not .About}}active{{end}}" href="/">
+        <i class="icon" data-lucide="newspaper"></i>
+        <span>日报</span>
+      </a>
+      <a class="brand-link {{if .About}}active{{end}}" href="/about">
+        <i class="icon" data-lucide="info"></i>
+        <span>About</span>
+      </a>
+      <a class="brand-link" href="/feed.xml">
+        <i class="icon" data-lucide="rss"></i>
+        <span>RSS</span>
+      </a>
+    </nav>
     {{if .Admin}}
     <div class="side-actions" id="adminTools">
       <button class="primary-button" id="generateBtn" type="button">
@@ -513,7 +595,7 @@
   </aside>
   <section class="workspace">
     <div class="topbar">
-      <div class="current-title" id="currentTitle">选择一篇日报</div>
+      <div class="current-title" id="currentTitle">{{if .About}}关于项目{{else}}选择一篇日报{{end}}</div>
       <div class="status" id="statusBadge">
         <span class="status-dot"></span>
         <span id="statusText">未就绪</span>
@@ -522,15 +604,41 @@
     </div>
     <main>
       <article class="reader" id="content">
+        {{if .About}}
+        <section class="about-section">
+          <div>
+            <h1>Prometheus Daily</h1>
+            <p class="about-lead">普罗米修斯日报是一个面向 AI 技术生态的中文日报服务，关注研究进展、开发者工具、开源项目、安全风险、基础设施和模型能力更新。</p>
+          </div>
+          <section>
+            <h2>项目目标</h2>
+            <p>项目每天从固定 RSS 源、搜索接口和可选补充源收集候选信息，交给 LLM 生成可读的 Markdown 日报，并以文件形式保存。设计重点是简单、可部署、可审计：日报源文件保存在仓库外的运行时目录，生成接口需要管理令牌，公开页面只负责阅读。</p>
+          </section>
+          <section>
+            <h2>内容取向</h2>
+            <p>日报主体优先选择有技术细节的内容，例如论文、工具发布、开源框架、安全分析、工程实践和基础设施变化。产业、政策、合作和市场报告可以作为技术生态背景出现，但频率会被控制，并放在正文靠后位置。</p>
+          </section>
+          <section>
+            <h2>订阅</h2>
+            <p>你可以通过 RSS 阅读器订阅日报更新。</p>
+            <a class="about-link" href="/feed.xml">
+              <i class="icon" data-lucide="rss"></i>
+              <span>打开 RSS Feed</span>
+            </a>
+          </section>
+        </section>
+        {{else}}
         <div class="empty-state">
           <i class="icon" data-lucide="newspaper"></i>
           <div>暂无选中的日报</div>
         </div>
+        {{end}}
       </article>
     </main>
   </section>
   <div class="toast" id="toast"></div>
   <script>
+    const isAbout = {{if .About}}true{{else}}false{{end}};
     let currentDate = "";
 
     function setupIcons() {
@@ -570,7 +678,7 @@
         list.appendChild(row);
       }
 
-      if (!currentDate && items.length > 0) {
+      if (!isAbout && !currentDate && items.length > 0) {
         await loadDaily(items[0].date);
       }
     }

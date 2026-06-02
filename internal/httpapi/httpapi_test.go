@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +80,29 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("raw status=%d body=%s", rawResp.Code, rawResp.Body.String())
 	}
 
+	feedReq := httptest.NewRequest(http.MethodGet, "/feed.xml", nil)
+	feedReq.Header.Set("X-Forwarded-Proto", "https")
+	feedReq.Header.Set("X-Forwarded-Host", "daily.example.com")
+	feedResp := httptest.NewRecorder()
+	router.ServeHTTP(feedResp, feedReq)
+	feedBody := feedResp.Body.String()
+	if feedResp.Code != http.StatusOK || !strings.Contains(feedResp.Header().Get("Content-Type"), "application/rss+xml") {
+		t.Fatalf("feed status=%d content-type=%s body=%s", feedResp.Code, feedResp.Header().Get("Content-Type"), feedBody)
+	}
+	if !strings.Contains(feedBody, `<rss version="2.0">`) ||
+		!strings.Contains(feedBody, "Prometheus Daily "+today) ||
+		!strings.Contains(feedBody, apiSummary) ||
+		!strings.Contains(feedBody, "https://daily.example.com/api/daily/"+today+"/raw") {
+		t.Fatalf("unexpected feed body=%s", feedBody)
+	}
+
+	rssReq := httptest.NewRequest(http.MethodGet, "/rss.xml", nil)
+	rssResp := httptest.NewRecorder()
+	router.ServeHTTP(rssResp, rssReq)
+	if rssResp.Code != http.StatusOK {
+		t.Fatalf("rss alias status=%d body=%s", rssResp.Code, rssResp.Body.String())
+	}
+
 	statusReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	statusResp := httptest.NewRecorder()
 	router.ServeHTTP(statusResp, statusReq)
@@ -97,8 +122,55 @@ func TestGenerateAndReadFlow(t *testing.T) {
 	}
 }
 
+func TestUnknownRoutesDoNotRenderIndex(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	runner := generate.NewRunner(store, apiSearcher{}, apiLLM{})
+	router := httpapi.NewRouter(store, runner, "secret", storeWorkspace(store), time.Now())
+
+	for _, path := range []string{"/.env", "/.git/config", "/_ignition/health-check"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("%s status=%d, want 404", path, resp.Code)
+		}
+	}
+
+	faviconReq := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	faviconResp := httptest.NewRecorder()
+	router.ServeHTTP(faviconResp, faviconReq)
+	if faviconResp.Code != http.StatusNoContent {
+		t.Fatalf("favicon status=%d, want 204", faviconResp.Code)
+	}
+}
+
+func TestPageRoutesRender(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	runner := generate.NewRunner(store, apiSearcher{}, apiLLM{})
+	router := httpapi.NewRouter(store, runner, "secret", repoWorkspace(t), time.Now())
+
+	for _, path := range []string{"/", "/about", "/admin"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, resp.Code, resp.Body.String())
+		}
+	}
+}
+
 func storeWorkspace(store *daily.Store) string {
 	return strings.TrimSuffix(strings.TrimSuffix(store.Dir(), "/daily"), "/content")
+}
+
+func repoWorkspace(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
 type apiSearcher struct{}

@@ -32,8 +32,14 @@ func NewRouter(store *daily.Store, generator Generator, adminToken, workspace st
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.Index)
+	mux.HandleFunc("GET /{$}", s.Index)
 	mux.HandleFunc("GET /admin", s.AdminIndex)
+	mux.HandleFunc("GET /about", s.AboutIndex)
+	mux.HandleFunc("GET /feed.xml", s.Feed)
+	mux.HandleFunc("GET /rss.xml", s.Feed)
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /api/daily", s.ListDaily)
 	mux.HandleFunc("GET /api/daily/{date}", s.GetDaily)
 	mux.HandleFunc("GET /api/daily/{date}/raw", s.GetDailyRaw)

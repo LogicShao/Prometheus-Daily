@@ -73,6 +73,14 @@ func (w *statusWriter) Write(data []byte) (int, error) {
 }
 
 func remoteAddr(r *http.Request) string {
+	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
+		if first := strings.TrimSpace(strings.Split(forwardedFor, ",")[0]); first != "" {
+			return first
+		}
+	}
+	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+		return realIP
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

@@ -14,6 +14,7 @@ Prometheus Daily（普罗米修斯日报）是一个轻量 AI 技术日报系统
 - `content/daily/YYYY-MM-DD.md` 文件存储
 - `POST /api/generate` Bearer token 认证
 - 单文件前端浏览历史日报
+- `/feed.xml` RSS 订阅输出
 
 ## Project Layout
 
@@ -97,8 +98,11 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | 前端页面 |
+| `GET` | `/about` | 项目介绍页面 |
 | `GET` | `/api/daily` | 日报列表 |
 | `GET` | `/api/daily/{date}/raw` | 原始 Markdown |
+| `GET` | `/feed.xml` | RSS 订阅 |
+| `GET` | `/rss.xml` | RSS 订阅别名 |
 | `POST` | `/api/generate` | 生成日报，需要 Bearer token |
 | `GET` | `/api/status` | 生成状态 |
 | `GET` | `/health` | 健康检查 |
