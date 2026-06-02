@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -78,18 +78,20 @@ func (d *Daily) nextRun(now time.Time) time.Time {
 }
 
 func (d *Daily) runOnce(ctx context.Context) {
+	start := time.Now()
+	slog.Info("daily scheduler tick", "next_run", d.nextRun(d.now()).Format(time.RFC3339))
 	result, err := d.runner.Run(ctx, "")
 	if errors.Is(err, daily.ErrExists) {
-		log.Printf("daily scheduler skipped: today's daily already exists")
+		slog.Info("daily scheduler skipped", "reason", "already_exists", "duration", time.Since(start).String())
 		return
 	}
 	if errors.Is(err, generate.ErrRunning) {
-		log.Printf("daily scheduler skipped: generation already running")
+		slog.Info("daily scheduler skipped", "reason", "already_running", "duration", time.Since(start).String())
 		return
 	}
 	if err != nil {
-		log.Printf("daily scheduler failed: %v", err)
+		slog.Error("daily scheduler failed", "error", err.Error(), "duration", time.Since(start).String())
 		return
 	}
-	log.Printf("daily scheduler generated %s: %s", result.Date, result.File)
+	slog.Info("daily scheduler generated", "date", result.Date, "file", result.File, "duration", time.Since(start).String())
 }

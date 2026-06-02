@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sort"
 	"strings"
@@ -54,12 +55,15 @@ func NewService(primary []Provider, fallback []Provider) *Service {
 }
 
 func (s *Service) SearchDailySources(ctx context.Context, date string) ([]Result, error) {
+	start := time.Now()
 	since := time.Now().Add(-7 * 24 * time.Hour)
 	opts := Options{MaxResults: 5, Since: since}
 	queries := dailyQuerySpecs()
 
+	slog.Info("daily source search started", "date", date, "primary_providers", len(s.primary), "fallback_providers", len(s.fallback), "queries", len(queries))
 	results, errs := searchProviders(ctx, s.primary, queries, opts)
 	if shouldSearchFallback(results) && len(s.fallback) > 0 {
+		slog.Info("daily source fallback search started", "date", date, "results_before_fallback", len(results))
 		fallback, fallbackErrs := searchProviders(ctx, s.fallback, queries, opts)
 		results = append(results, fallback...)
 		errs = append(errs, fallbackErrs...)
@@ -69,8 +73,10 @@ func (s *Service) SearchDailySources(ctx context.Context, date string) ([]Result
 	results = sortResults(results)
 	results = selectBalancedResults(results, 2, 5, 20)
 	if len(results) == 0 {
+		slog.Error("daily source search failed", "date", date, "duration", time.Since(start).String(), "errors", joinErrors(errs))
 		return nil, fmt.Errorf("%w: %s", ErrNoResults, joinErrors(errs))
 	}
+	slog.Info("daily source search completed", "date", date, "results", len(results), "categories", len(uniqueCategories(results)), "duration", time.Since(start).String())
 	return results, nil
 }
 
@@ -96,8 +102,10 @@ func searchProviders(ctx context.Context, providers []Provider, queries []queryS
 			items, err := provider.Search(ctx, "", opts)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", provider.Name(), err))
+				slog.Warn("search provider failed", "provider", provider.Name(), "error", err.Error())
 				continue
 			}
+			slog.Info("search provider completed", "provider", provider.Name(), "results", len(items))
 			results = append(results, annotateResults(items, provider.Name(), "")...)
 			continue
 		}
@@ -106,8 +114,10 @@ func searchProviders(ctx context.Context, providers []Provider, queries []queryS
 			items, err := provider.Search(ctx, spec.Query, opts)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", provider.Name(), err))
+				slog.Warn("search provider failed", "provider", provider.Name(), "category", spec.Category, "error", err.Error())
 				continue
 			}
+			slog.Info("search provider completed", "provider", provider.Name(), "category", spec.Category, "results", len(items))
 			results = append(results, annotateResults(items, provider.Name(), spec.Category)...)
 		}
 	}

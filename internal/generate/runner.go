@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -49,14 +50,17 @@ func (r *Runner) Status() Status {
 }
 
 func (r *Runner) Run(ctx context.Context, rawDate string) (*Result, error) {
+	start := r.now()
 	date, err := daily.NormalizeDate(rawDate, r.now())
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("daily generation started", "date", date)
 
 	r.mu.Lock()
 	if r.status.Running {
 		r.mu.Unlock()
+		slog.Warn("daily generation rejected", "date", date, "reason", "already_running")
 		return nil, ErrRunning
 	}
 	r.status.Running = true
@@ -73,31 +77,42 @@ func (r *Runner) Run(ctx context.Context, rawDate string) (*Result, error) {
 
 	if exists, err := r.store.Exists(date); err != nil {
 		r.fail(err)
+		slog.Error("daily generation failed", "date", date, "stage", "exists", "error", err.Error())
 		return nil, err
 	} else if exists {
 		r.fail(daily.ErrExists)
+		slog.Warn("daily generation skipped", "date", date, "reason", "already_exists")
 		return nil, daily.ErrExists
 	}
 
+	searchStart := r.now()
 	results, err := r.searcher.SearchDailySources(ctx, date)
 	if err != nil {
 		err = fmt.Errorf("search: %w", err)
 		r.fail(err)
+		slog.Error("daily generation failed", "date", date, "stage", "search", "duration", r.now().Sub(searchStart).String(), "error", err.Error())
 		return nil, err
 	}
+	slog.Info("daily generation search completed", "date", date, "results", len(results), "duration", r.now().Sub(searchStart).String())
 
+	llmStart := r.now()
 	markdown, err := r.llm.WriteDaily(ctx, date, results)
 	if err != nil {
 		err = fmt.Errorf("llm: %w", err)
 		r.fail(err)
+		slog.Error("daily generation failed", "date", date, "stage", "llm", "duration", r.now().Sub(llmStart).String(), "error", err.Error())
 		return nil, err
 	}
+	slog.Info("daily generation llm completed", "date", date, "bytes", len(markdown), "duration", r.now().Sub(llmStart).String())
 
+	writeStart := r.now()
 	file, err := r.store.WriteValidated(date, markdown)
 	if err != nil {
 		r.fail(err)
+		slog.Error("daily generation failed", "date", date, "stage", "write", "duration", r.now().Sub(writeStart).String(), "error", err.Error())
 		return nil, err
 	}
+	slog.Info("daily generation write completed", "date", date, "file", file, "duration", r.now().Sub(writeStart).String())
 
 	result := &Result{
 		Date:    date,
@@ -109,6 +124,7 @@ func (r *Runner) Run(ctx context.Context, rawDate string) (*Result, error) {
 	r.status.LastFile = file
 	r.status.LastError = ""
 	r.mu.Unlock()
+	slog.Info("daily generation completed", "date", date, "file", file, "duration", r.now().Sub(start).String())
 	return result, nil
 }
 

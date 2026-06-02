@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"m-daily-news/internal/search"
 )
@@ -65,19 +67,25 @@ func (c *DeepSeekClient) WriteDaily(ctx context.Context, date string, results []
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
+	slog.Info("llm request started", "model", c.model, "date", date, "results", len(results))
 	resp, err := c.client.Do(req)
 	if err != nil {
+		slog.Error("llm request failed", "model", c.model, "date", date, "duration", time.Since(start).String(), "error", err.Error())
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
+		slog.Error("llm response read failed", "model", c.model, "date", date, "status", resp.StatusCode, "duration", time.Since(start).String(), "error", err.Error())
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("llm request returned non-2xx", "model", c.model, "date", date, "status", resp.StatusCode, "duration", time.Since(start).String(), "bytes", len(data))
 		return "", fmt.Errorf("llm status %d: %s", resp.StatusCode, string(data))
 	}
+	slog.Info("llm request completed", "model", c.model, "date", date, "status", resp.StatusCode, "duration", time.Since(start).String(), "bytes", len(data))
 
 	var decoded chatResponse
 	if err := json.Unmarshal(data, &decoded); err != nil {
