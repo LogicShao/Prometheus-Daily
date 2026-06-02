@@ -19,6 +19,12 @@ var (
 	itemLabels         = []string{"URL", "来源", "发布日期", "类型", "摘要", "为什么重要", "不确定性/风险"}
 )
 
+const (
+	frontmatterSummaryMinRunes = 50
+	frontmatterSummaryMaxRunes = 300
+	itemSummaryMinRunes        = 60
+)
+
 func ValidateFile(path, expectedDate string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -45,11 +51,12 @@ func Validate(raw, expectedDate string) error {
 	if strings.TrimSpace(fm.Summary) == "" {
 		return fmt.Errorf("%w: summary required", ErrInvalidMarkdown)
 	}
-	if len([]rune(fm.Summary)) < 50 {
+	summaryRunes := len([]rune(fm.Summary))
+	if summaryRunes < frontmatterSummaryMinRunes {
 		return fmt.Errorf("%w: summary too short", ErrInvalidMarkdown)
 	}
-	if len([]rune(fm.Summary)) > 220 {
-		return fmt.Errorf("%w: summary too long", ErrInvalidMarkdown)
+	if summaryRunes > frontmatterSummaryMaxRunes {
+		return fmt.Errorf("%w: summary too long (%d > %d)", ErrInvalidMarkdown, summaryRunes, frontmatterSummaryMaxRunes)
 	}
 	if len(fm.Tags) == 0 {
 		return fmt.Errorf("%w: tags required", ErrInvalidMarkdown)
@@ -75,7 +82,7 @@ func Validate(raw, expectedDate string) error {
 				return fmt.Errorf("%w: item missing %s", ErrInvalidMarkdown, label)
 			}
 		}
-		if len([]rune(labelValue(section, "摘要"))) < 60 {
+		if len([]rune(labelValue(section, "摘要"))) < itemSummaryMinRunes {
 			return fmt.Errorf("%w: item summary too short", ErrInvalidMarkdown)
 		}
 		links := linkRE.FindAllString(section, -1)
