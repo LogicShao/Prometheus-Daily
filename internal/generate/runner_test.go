@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"m-daily-news/internal/daily"
 	"m-daily-news/internal/generate"
@@ -13,22 +14,28 @@ import (
 func TestRunnerRun(t *testing.T) {
 	store := daily.NewStore(t.TempDir())
 	runner := generate.NewRunner(store, fakeSearcher{}, fakeLLM{})
+	today := time.Now().Format("2006-01-02")
 
-	result, err := runner.Run(context.Background(), "2026-05-30")
+	result, err := runner.Run(context.Background(), today)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if result.Date != "2026-05-30" || result.Summary != generatedSummary {
+	if result.Date != today || result.Summary != generatedSummary {
 		t.Fatalf("unexpected result %#v", result)
 	}
 	status := runner.Status()
-	if !status.LastSuccess || status.LastFile == "" {
+	if !status.LastSuccess || status.LastFile == "" || !status.TodayReady {
 		t.Fatalf("unexpected status %#v", status)
 	}
 
-	_, err = runner.Run(context.Background(), "2026-05-30")
+	_, err = runner.Run(context.Background(), today)
 	if !errors.Is(err, daily.ErrExists) {
 		t.Fatalf("duplicate err=%v, want ErrExists", err)
+	}
+
+	status = runner.Status()
+	if !status.TodayReady {
+		t.Fatalf("today_ready should stay true after duplicate failure when today's file exists: %#v", status)
 	}
 }
 

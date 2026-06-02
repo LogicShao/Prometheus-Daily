@@ -28,16 +28,17 @@
     }
 
     * { box-sizing: border-box; }
-    html, body { min-height: 100%; }
+    html, body { height: 100%; }
     body {
       margin: 0;
-      min-height: 100vh;
+      height: 100vh;
       display: grid;
       grid-template-columns: 316px minmax(0, 1fr);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
       background: var(--bg);
       letter-spacing: 0;
+      overflow: hidden;
     }
 
     button, input { font: inherit; letter-spacing: 0; }
@@ -45,11 +46,15 @@
     button:disabled { cursor: not-allowed; }
 
     .sidebar {
-      min-height: 100vh;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       border-right: 1px solid var(--line);
       background: var(--surface);
+      overflow: hidden;
     }
 
     .brand {
@@ -141,6 +146,7 @@
 
     .list {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 6px 12px 18px;
     }
@@ -200,9 +206,11 @@
 
     .workspace {
       min-width: 0;
-      min-height: 100vh;
+      height: 100vh;
+      min-height: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
     .topbar {
@@ -245,6 +253,21 @@
     .status.running .status-dot {
       background: var(--warm);
       box-shadow: 0 0 0 4px rgba(245, 158, 11, .14);
+    }
+
+    .status.ready .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(52, 211, 153, .13);
+    }
+
+    .status.idle .status-dot {
+      background: #64748b;
+      box-shadow: 0 0 0 4px rgba(100, 116, 139, .14);
+    }
+
+    .status.failed .status-dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 4px rgba(248, 113, 113, .15);
     }
 
     main {
@@ -413,10 +436,16 @@
 
     @media (max-width: 860px) {
       body {
+        height: auto;
+        min-height: 100vh;
         grid-template-columns: 1fr;
+        overflow: auto;
       }
 
       .sidebar {
+        position: relative;
+        top: auto;
+        height: auto;
         min-height: 0;
         max-height: 42vh;
         border-right: 0;
@@ -436,7 +465,9 @@
       }
 
       .workspace {
+        height: auto;
         min-height: 58vh;
+        overflow: visible;
       }
 
       .topbar {
@@ -485,8 +516,8 @@
       <div class="current-title" id="currentTitle">选择一篇日报</div>
       <div class="status" id="statusBadge">
         <span class="status-dot"></span>
-        <span id="statusText">就绪</span>
-        <span id="statusTime"></span>
+        <span id="statusText">未就绪</span>
+        <span id="statusTime" hidden></span>
       </div>
     </div>
     <main>
@@ -555,6 +586,7 @@
       document.getElementById("currentTitle").textContent = `日报 ${data.date || date}`;
       renderDaily(data);
       await loadList();
+      await loadStatus();
     }
 
     function renderDaily(data) {
@@ -564,10 +596,6 @@
 
       const metaTop = document.createElement("div");
       metaTop.className = "report-meta-top";
-
-      const label = document.createElement("span");
-      label.className = "report-meta-label";
-      label.textContent = "元信息";
 
       const date = document.createElement("span");
       date.className = "report-meta-date";
@@ -586,7 +614,7 @@
         tags.appendChild(chip);
       });
 
-      metaTop.append(label, date);
+      metaTop.append(date);
       meta.append(metaTop, summary, tags);
 
       const body = document.createElement("div");
@@ -615,6 +643,7 @@
         currentDate = data.date;
         await loadList();
         await loadDaily(data.date);
+        await loadStatus();
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -633,9 +662,34 @@
       if (!res.ok) return;
       const data = await res.json();
       const badge = document.getElementById("statusBadge");
+      const statusText = document.getElementById("statusText");
+      const statusTime = document.getElementById("statusTime");
+      const renderedToday = Boolean(data.today_ready && data.today_date && currentDate === data.today_date);
+
       badge.classList.toggle("running", Boolean(data.running));
-      document.getElementById("statusText").textContent = data.running ? "生成中" : "就绪";
-      document.getElementById("statusTime").textContent = data.last_run ? new Date(data.last_run).toLocaleString("zh-CN") : "";
+      badge.classList.toggle("ready", renderedToday);
+      badge.classList.toggle("failed", Boolean(data.last_error) && !data.running && !data.today_ready);
+      badge.classList.toggle("idle", !data.running && !renderedToday && !data.last_error);
+
+      if (data.running) {
+        statusText.textContent = "生成中";
+      } else if (renderedToday) {
+        statusText.textContent = "就绪";
+      } else if (data.today_ready) {
+        statusText.textContent = "待渲染";
+      } else if (data.last_error) {
+        statusText.textContent = "失败";
+      } else {
+        statusText.textContent = "未就绪";
+      }
+
+      if (data.last_run) {
+        statusTime.hidden = false;
+        statusTime.textContent = new Date(data.last_run).toLocaleString("zh-CN");
+      } else {
+        statusTime.hidden = true;
+        statusTime.textContent = "";
+      }
     }
 
     function showToast(message, type) {

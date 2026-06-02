@@ -33,8 +33,19 @@ func NewRunner(store *daily.Store, searcher Searcher, llmClient llm.Client) *Run
 
 func (r *Runner) Status() Status {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.status
+	status := r.status
+	r.mu.Unlock()
+
+	status.TodayReady = false
+	if !status.Running {
+		today, err := daily.NormalizeDate("", r.now())
+		if err == nil {
+			status.TodayDate = today
+			ready, err := r.store.Exists(today)
+			status.TodayReady = err == nil && ready
+		}
+	}
+	return status
 }
 
 func (r *Runner) Run(ctx context.Context, rawDate string) (*Result, error) {
@@ -55,7 +66,8 @@ func (r *Runner) Run(ctx context.Context, rawDate string) (*Result, error) {
 	defer func() {
 		r.mu.Lock()
 		r.status.Running = false
-		r.status.LastRun = r.now()
+		lastRun := r.now()
+		r.status.LastRun = &lastRun
 		r.mu.Unlock()
 	}()
 

@@ -19,6 +19,7 @@ func TestGenerateAndReadFlow(t *testing.T) {
 	store := daily.NewStore(t.TempDir())
 	runner := generate.NewRunner(store, apiSearcher{}, apiLLM{})
 	router := httpapi.NewRouter(store, runner, "secret", storeWorkspace(store), time.Now())
+	today := time.Now().Format("2006-01-02")
 
 	unauth := httptest.NewRequest(http.MethodPost, "/api/generate", nil)
 	unauthResp := httptest.NewRecorder()
@@ -27,7 +28,7 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("unauth status=%d", unauthResp.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"date":"2026-05-30"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"date":"`+today+`"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -51,7 +52,7 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("total=%d, want 1", list.Total)
 	}
 
-	detailReq := httptest.NewRequest(http.MethodGet, "/api/daily/2026-05-30", nil)
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/daily/"+today, nil)
 	detailResp := httptest.NewRecorder()
 	router.ServeHTTP(detailResp, detailReq)
 	if detailResp.Code != http.StatusOK {
@@ -66,15 +67,33 @@ func TestGenerateAndReadFlow(t *testing.T) {
 	if err := json.Unmarshal(detailResp.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("detail json: %v", err)
 	}
-	if detail.Date != "2026-05-30" || detail.Summary != apiSummary || len(detail.Tags) != 2 || !strings.Contains(detail.Body, "## API generated item") {
+	if detail.Date != today || detail.Summary != apiSummary || len(detail.Tags) != 2 || !strings.Contains(detail.Body, "## API generated item") {
 		t.Fatalf("unexpected detail %#v", detail)
 	}
 
-	rawReq := httptest.NewRequest(http.MethodGet, "/api/daily/2026-05-30/raw", nil)
+	rawReq := httptest.NewRequest(http.MethodGet, "/api/daily/"+today+"/raw", nil)
 	rawResp := httptest.NewRecorder()
 	router.ServeHTTP(rawResp, rawReq)
 	if rawResp.Code != http.StatusOK || !strings.Contains(rawResp.Body.String(), "## API generated item") {
 		t.Fatalf("raw status=%d body=%s", rawResp.Code, rawResp.Body.String())
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	statusResp := httptest.NewRecorder()
+	router.ServeHTTP(statusResp, statusReq)
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("status code=%d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var status struct {
+		Running    bool   `json:"running"`
+		TodayReady bool   `json:"today_ready"`
+		LastError  string `json:"last_error"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &status); err != nil {
+		t.Fatalf("status json: %v", err)
+	}
+	if status.Running || !status.TodayReady || status.LastError != "" {
+		t.Fatalf("unexpected status %#v", status)
 	}
 }
 
