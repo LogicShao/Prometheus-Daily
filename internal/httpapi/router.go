@@ -40,5 +40,5 @@ func NewRouter(store *daily.Store, generator Generator, adminToken, workspace st
 	mux.HandleFunc("POST /api/generate", requireAdmin(adminToken, s.Generate))
 	mux.HandleFunc("GET /api/status", s.Status)
 	mux.HandleFunc("GET /health", s.Health)
-	return mux
+	return requestLog(mux)
 }
