@@ -1,7 +1,7 @@
 package daily_test
 
 import (
-	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -12,24 +12,37 @@ import (
 
 func TestLocalDailyReportsAreValid(t *testing.T) {
 	dir := repoPath(t, "content", "daily")
-	entries, err := os.ReadDir(dir)
+	reports := trackedDailyReports(t)
+	for _, report := range reports {
+		name := filepath.Base(report)
+		if err := daily.ValidateFile(filepath.Join(dir, name), strings.TrimSuffix(name, ".md")); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if len(reports) == 0 {
+		t.Fatal("no tracked daily reports found")
+	}
+}
+
+func trackedDailyReports(t *testing.T) []string {
+	t.Helper()
+
+	cmd := exec.Command("git", "ls-files", "--", "content/daily/*.md")
+	cmd.Dir = repoPath(t)
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
+		t.Fatalf("git ls-files: %v", err)
 	}
 
-	count := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	reports := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" || filepath.Ext(line) != ".md" {
 			continue
 		}
-		count++
-		if err := daily.ValidateFile(filepath.Join(dir, entry.Name()), strings.TrimSuffix(entry.Name(), ".md")); err != nil {
-			t.Fatalf("%s: %v", entry.Name(), err)
-		}
+		reports = append(reports, line)
 	}
-	if count == 0 {
-		t.Fatal("no local daily reports found")
-	}
+	return reports
 }
 
 func repoPath(t *testing.T, elems ...string) string {
