@@ -38,6 +38,14 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
 	}
 
+	rerunReq := httptest.NewRequest(http.MethodPost, "/api/generate/rerun", nil)
+	rerunReq.Header.Set("Authorization", "Bearer secret")
+	rerunResp := httptest.NewRecorder()
+	router.ServeHTTP(rerunResp, rerunReq)
+	if rerunResp.Code != http.StatusOK {
+		t.Fatalf("rerun status=%d body=%s", rerunResp.Code, rerunResp.Body.String())
+	}
+
 	listReq := httptest.NewRequest(http.MethodGet, "/api/daily", nil)
 	listResp := httptest.NewRecorder()
 	router.ServeHTTP(listResp, listReq)

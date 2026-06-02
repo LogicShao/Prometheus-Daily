@@ -104,6 +104,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 | `GET` | `/feed.xml` | RSS 订阅 |
 | `GET` | `/rss.xml` | RSS 订阅别名 |
 | `POST` | `/api/generate` | 生成日报，需要 Bearer token |
+| `POST` | `/api/generate/rerun` | 重新生成今日日报，需要 Bearer token |
 | `GET` | `/api/status` | 生成状态 |
 | `GET` | `/health` | 健康检查 |
 

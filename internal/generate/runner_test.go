@@ -3,6 +3,7 @@ package generate_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,32 @@ func TestRunnerRun(t *testing.T) {
 	}
 }
 
+func TestRunnerRerunTodayReplacesExisting(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	llm := &sequenceLLM{summaries: []string{generatedSummary, rerunSummary}}
+	runner := generate.NewRunner(store, fakeSearcher{}, llm)
+	today := time.Now().Format("2006-01-02")
+
+	if _, err := runner.Run(context.Background(), today); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	result, err := runner.RerunToday(context.Background())
+	if err != nil {
+		t.Fatalf("RerunToday: %v", err)
+	}
+	if result.Date != today || result.Summary != rerunSummary {
+		t.Fatalf("unexpected rerun result %#v", result)
+	}
+
+	raw, err := store.ReadRaw(today)
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !strings.Contains(string(raw), rerunSummary) {
+		t.Fatalf("rerun did not replace today's report")
+	}
+}
+
 type fakeSearcher struct{}
 
 func (fakeSearcher) SearchDailySources(context.Context, string) ([]search.Result, error) {
@@ -48,9 +75,24 @@ func (fakeSearcher) SearchDailySources(context.Context, string) ([]search.Result
 type fakeLLM struct{}
 
 func (fakeLLM) WriteDaily(_ context.Context, date string, _ []search.Result) (string, error) {
+	return generatedMarkdown(date, generatedSummary), nil
+}
+
+type sequenceLLM struct {
+	summaries []string
+	calls     int
+}
+
+func (l *sequenceLLM) WriteDaily(_ context.Context, date string, _ []search.Result) (string, error) {
+	summary := l.summaries[min(l.calls, len(l.summaries)-1)]
+	l.calls++
+	return generatedMarkdown(date, summary), nil
+}
+
+func generatedMarkdown(date, summary string) string {
 	return `---
 date: ` + date + `
-summary: "` + generatedSummary + `"
+summary: "` + summary + `"
 tags: [AI, Agent]
 ---
 
@@ -94,7 +136,15 @@ URL: https://openai.com/index/generated
 为什么重要: It validates category coverage and confirms paragraph reports are accepted by the runner.
 
 不确定性/风险: No obvious risk, but generated research summaries should still be compared with primary sources.
-`, nil
+`
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 const generatedSummary = "Generated summary now has enough detail to represent the report content and prevent shallow metadata from passing validation."
+const rerunSummary = "Rerun summary now has enough detail to prove today's existing report can be atomically regenerated and replaced."

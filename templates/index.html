@@ -121,7 +121,8 @@
     }
 
     .icon-button,
-    .primary-button {
+    .primary-button,
+    .secondary-button {
       height: 38px;
       display: inline-flex;
       align-items: center;
@@ -143,6 +144,24 @@
     .primary-button:disabled {
       color: #d0d5dd;
       background: #475467;
+    }
+
+    .secondary-button {
+      flex: 1;
+      padding: 0 12px;
+      color: var(--muted-strong);
+      background: var(--surface-soft);
+      border-color: var(--line);
+    }
+
+    .secondary-button:hover {
+      color: var(--text);
+      background: #2b3440;
+    }
+
+    .secondary-button:disabled {
+      color: #818b9a;
+      background: #252b34;
     }
 
     .icon-button {
@@ -582,6 +601,10 @@
         <i class="icon" data-lucide="sparkles"></i>
         <span>生成今天</span>
       </button>
+      <button class="secondary-button" id="rerunBtn" type="button">
+        <i class="icon" data-lucide="refresh-cw"></i>
+        <span>重跑今日</span>
+      </button>
       <button class="icon-button" id="clearTokenBtn" type="button" title="清除令牌" aria-label="清除令牌">
         <i class="icon" data-lucide="lock-keyhole"></i>
       </button>
@@ -734,7 +757,14 @@
 
     {{if .Admin}}
     async function generateDaily() {
-      const btn = document.getElementById("generateBtn");
+      await submitGeneration("/api/generate", document.getElementById("generateBtn"), "生成完成");
+    }
+
+    async function rerunToday() {
+      await submitGeneration("/api/generate/rerun", document.getElementById("rerunBtn"), "今日已重跑");
+    }
+
+    async function submitGeneration(path, btn, successMessage) {
       btn.disabled = true;
       try {
         let token = sessionStorage.getItem("adminToken");
@@ -743,11 +773,11 @@
           if (!token) return;
           sessionStorage.setItem("adminToken", token);
         }
-        const res = await fetch("/api/generate", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (res.status === 401) sessionStorage.removeItem("adminToken");
         if (!res.ok || !data.success) throw new Error(data.error || "生成失败");
-        showToast("生成完成", "success");
+        showToast(successMessage, "success");
         currentDate = data.date;
         await loadList();
         await loadDaily(data.date);
@@ -810,6 +840,7 @@
     setupIcons();
     {{if .Admin}}
     document.getElementById("generateBtn").addEventListener("click", generateDaily);
+    document.getElementById("rerunBtn").addEventListener("click", rerunToday);
     document.getElementById("clearTokenBtn").addEventListener("click", clearToken);
     {{end}}
     loadList().catch((err) => showToast(err.message, "error"));

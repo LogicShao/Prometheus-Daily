@@ -11,6 +11,7 @@ import (
 
 type Generator interface {
 	Run(ctx context.Context, rawDate string) (*generate.Result, error)
+	RerunToday(ctx context.Context) (*generate.Result, error)
 	Status() generate.Status
 }
 
@@ -44,6 +45,7 @@ func NewRouter(store *daily.Store, generator Generator, adminToken, workspace st
 	mux.HandleFunc("GET /api/daily/{date}", s.GetDaily)
 	mux.HandleFunc("GET /api/daily/{date}/raw", s.GetDailyRaw)
 	mux.HandleFunc("POST /api/generate", requireAdmin(adminToken, s.Generate))
+	mux.HandleFunc("POST /api/generate/rerun", requireAdmin(adminToken, s.RerunToday))
 	mux.HandleFunc("GET /api/status", s.Status)
 	mux.HandleFunc("GET /health", s.Health)
 	return requestLog(mux)

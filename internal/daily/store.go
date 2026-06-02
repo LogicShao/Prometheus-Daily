@@ -93,14 +93,24 @@ func (s *Store) Exists(date string) (bool, error) {
 }
 
 func (s *Store) WriteValidated(date, markdown string) (string, error) {
+	return s.writeValidated(date, markdown, false)
+}
+
+func (s *Store) ReplaceValidated(date, markdown string) (string, error) {
+	return s.writeValidated(date, markdown, true)
+}
+
+func (s *Store) writeValidated(date, markdown string, replace bool) (string, error) {
 	target, err := s.Path(date)
 	if err != nil {
 		return "", err
 	}
-	if exists, err := s.Exists(date); err != nil {
-		return "", err
-	} else if exists {
-		return "", ErrExists
+	if !replace {
+		if exists, err := s.Exists(date); err != nil {
+			return "", err
+		} else if exists {
+			return "", ErrExists
+		}
 	}
 
 	dir := filepath.Dir(target)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"m-daily-news/internal/daily"
@@ -40,6 +41,29 @@ func TestStoreWriteListReadAndDuplicate(t *testing.T) {
 
 	if _, err := store.WriteValidated("2026-05-30", md); !errors.Is(err, daily.ErrExists) {
 		t.Fatalf("duplicate err=%v, want ErrExists", err)
+	}
+
+	replacement := strings.Replace(md, testSummary, replacementSummary, 1)
+	if _, err := store.ReplaceValidated("2026-05-30", replacement); err != nil {
+		t.Fatalf("ReplaceValidated: %v", err)
+	}
+	raw, err = store.ReadRaw("2026-05-30")
+	if err != nil {
+		t.Fatalf("ReadRaw after replace: %v", err)
+	}
+	if !strings.Contains(string(raw), replacementSummary) {
+		t.Fatalf("replacement was not persisted")
+	}
+
+	if _, err := store.ReplaceValidated("2026-05-30", strings.Replace(replacement, "URL: https://example.com/news", "URL: ", 1)); err == nil {
+		t.Fatalf("expected invalid replacement to fail")
+	}
+	raw, err = store.ReadRaw("2026-05-30")
+	if err != nil {
+		t.Fatalf("ReadRaw after failed replace: %v", err)
+	}
+	if !strings.Contains(string(raw), replacementSummary) {
+		t.Fatalf("failed replacement should keep previous report")
 	}
 }
 
@@ -117,3 +141,4 @@ URL: https://openai.com/index/example
 }
 
 const testSummary = "This generated test report uses a longer frontmatter summary so the validator can reject shallow metadata while still keeping fixtures readable."
+const replacementSummary = "This replacement report summary is long enough to validate rerun behavior while proving an existing daily can be atomically replaced."
