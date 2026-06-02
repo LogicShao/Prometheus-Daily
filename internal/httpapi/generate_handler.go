@@ -40,7 +40,7 @@ func (s *Server) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("generate request received", "date", req.Date)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	result, err := s.generator.Run(ctx, req.Date)

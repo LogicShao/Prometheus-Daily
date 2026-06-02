@@ -24,15 +24,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	searchHTTPClient := &http.Client{Timeout: 30 * time.Second}
+	llmHTTPClient := &http.Client{Timeout: 2 * time.Minute}
 	store := daily.NewStore(cfg.Workspace)
 	searcher := search.NewService(
 		[]search.Provider{
-			search.NewRSSProvider(client, defaultFeeds()),
-			search.NewZhipuProvider(cfg.ZhipuKey, cfg.ZhipuSearchURL, client),
+			search.NewRSSProvider(searchHTTPClient, defaultFeeds()),
+			search.NewZhipuProvider(cfg.ZhipuKey, cfg.ZhipuSearchURL, searchHTTPClient),
 		},
 		[]search.Provider{
-			search.NewTavilyProvider(cfg.TavilyKey, client),
+			search.NewTavilyProvider(cfg.TavilyKey, searchHTTPClient),
 		},
 	)
 
@@ -40,7 +41,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	llmClient := llm.NewDeepSeekClient(cfg.DeepSeekKey, cfg.DeepSeekURL, cfg.DeepSeekModel, prompt, client)
+	llmClient := llm.NewDeepSeekClient(cfg.DeepSeekKey, cfg.DeepSeekURL, cfg.DeepSeekModel, prompt, llmHTTPClient)
 	runner := generate.NewRunner(store, searcher, llmClient)
 	router := httpapi.NewRouter(store, runner, cfg.AdminToken, cfg.Workspace, time.Now())
 	if cfg.ScheduleDaily != "" {
