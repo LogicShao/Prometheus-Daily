@@ -466,9 +466,7 @@
     }
 
     .about-section h2 {
-      margin-top: 14px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
+      margin-top: 10px;
     }
 
     .about-lead {
@@ -485,6 +483,54 @@
       color: var(--accent);
       font-weight: 700;
       text-decoration: none;
+    }
+
+    .token-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(0, 0, 0, .58);
+    }
+
+    .token-dialog {
+      width: min(380px, 100%);
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .token-title {
+      margin: 0 0 12px;
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .token-input {
+      width: 100%;
+      height: 40px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      background: #10151d;
+      outline: none;
+    }
+
+    .token-input:focus {
+      border-color: rgba(45, 212, 191, .58);
+      box-shadow: 0 0 0 3px rgba(45, 212, 191, .12);
+    }
+
+    .token-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
     }
 
     .toast {
@@ -631,19 +677,27 @@
         <section class="about-section">
           <div>
             <h1>Prometheus Daily</h1>
-            <p class="about-lead">普罗米修斯日报是一个面向 AI 技术生态的中文日报服务，关注研究进展、开发者工具、开源项目、安全风险、基础设施和模型能力更新。</p>
+            <p class="about-lead">普罗米修斯日报是一个用于整理 AI 技术信息的轻量日报工具。它不追求全量收录，也不做泛泛的行业新闻聚合，而是把每天值得继续追踪的技术线索筛出来，整理成一篇可以直接阅读和存档的中文 Markdown。</p>
           </div>
           <section>
-            <h2>项目目标</h2>
-            <p>项目每天从固定 RSS 源、搜索接口和可选补充源收集候选信息，交给 LLM 生成可读的 Markdown 日报，并以文件形式保存。设计重点是简单、可部署、可审计：日报源文件保存在仓库外的运行时目录，生成接口需要管理令牌，公开页面只负责阅读。</p>
+            <h2>它解决的问题</h2>
+            <p>每天和 AI 有关的信息很多，真正有复盘价值的通常只占一小部分。这个项目把固定 RSS、搜索接口和可选补充源接在一起，先收集候选，再让模型按既定格式生成日报。生成后的文件保存在 `content/daily/`，前端只负责阅读、切换历史日报和在管理页触发生成。</p>
           </section>
           <section>
-            <h2>内容取向</h2>
-            <p>日报主体优先选择有技术细节的内容，例如论文、工具发布、开源框架、安全分析、工程实践和基础设施变化。产业、政策、合作和市场报告可以作为技术生态背景出现，但频率会被控制，并放在正文靠后位置。</p>
+            <h2>内容标准</h2>
+            <p>主体内容优先选择论文、开发者工具、开源项目、安全分析、模型能力、基础设施和真实工程实践。产业、政策、合作、融资、榜单和市场报告不是完全排除，但只作为背景信息出现，频率会被压低，并放在正文靠后的位置。</p>
+          </section>
+          <section>
+            <h2>运行方式</h2>
+            <p>服务每天早上自动生成一次日报。管理员也可以在后台手动生成，或者在当天内容质量不理想时重跑今日。公开阅读不需要登录，生成和重跑需要管理令牌。部署上保持简单：Go 服务、Docker Compose、文件存储，不引入数据库作为日报存储层。</p>
+          </section>
+          <section>
+            <h2>设计取舍</h2>
+            <p>项目刻意保留文件即数据的方式，方便查看、备份和迁移。生成结果会先经过格式校验，再写入目标文件；重跑今日也会先写临时文件，校验通过后再替换旧日报。这样做牺牲了一些复杂功能，但换来更清晰的运行边界。</p>
           </section>
           <section>
             <h2>订阅</h2>
-            <p>你可以通过 RSS 阅读器订阅日报更新。</p>
+            <p>日报提供 RSS 输出，适合放进常用阅读器里跟踪更新。</p>
             <a class="about-link" href="/feed.xml">
               <i class="icon" data-lucide="rss"></i>
               <span>打开 RSS Feed</span>
@@ -660,6 +714,18 @@
     </main>
   </section>
   <div class="toast" id="toast"></div>
+  {{if .Admin}}
+  <div class="token-modal" id="tokenModal" hidden>
+    <div class="token-dialog" role="dialog" aria-modal="true" aria-labelledby="tokenTitle">
+      <div class="token-title" id="tokenTitle">管理令牌</div>
+      <input class="token-input" id="tokenInput" type="password" autocomplete="current-password" spellcheck="false">
+      <div class="token-actions">
+        <button class="secondary-button" id="cancelTokenBtn" type="button">取消</button>
+        <button class="primary-button" id="confirmTokenBtn" type="button">确认</button>
+      </div>
+    </div>
+  </div>
+  {{end}}
   <script>
     const isAbout = {{if .About}}true{{else}}false{{end}};
     let currentDate = "";
@@ -756,6 +822,44 @@
     }
 
     {{if .Admin}}
+    let pendingTokenResolve = null;
+
+    function getAdminToken() {
+      const cached = sessionStorage.getItem("adminToken");
+      if (cached) return Promise.resolve(cached);
+      return new Promise((resolve) => {
+        pendingTokenResolve = resolve;
+        const modal = document.getElementById("tokenModal");
+        const input = document.getElementById("tokenInput");
+        input.value = "";
+        modal.hidden = false;
+        requestAnimationFrame(() => input.focus());
+      });
+    }
+
+    function closeTokenModal(token) {
+      const modal = document.getElementById("tokenModal");
+      modal.hidden = true;
+      if (!pendingTokenResolve) return;
+      const resolve = pendingTokenResolve;
+      pendingTokenResolve = null;
+      resolve(token || "");
+    }
+
+    function confirmToken() {
+      const token = document.getElementById("tokenInput").value.trim();
+      if (!token) {
+        showToast("请输入管理令牌", "error");
+        return;
+      }
+      sessionStorage.setItem("adminToken", token);
+      closeTokenModal(token);
+    }
+
+    function cancelTokenInput() {
+      closeTokenModal("");
+    }
+
     async function generateDaily() {
       await submitGeneration("/api/generate", document.getElementById("generateBtn"), "生成完成");
     }
@@ -767,12 +871,8 @@
     async function submitGeneration(path, btn, successMessage) {
       btn.disabled = true;
       try {
-        let token = sessionStorage.getItem("adminToken");
-        if (!token) {
-          token = prompt("管理令牌");
-          if (!token) return;
-          sessionStorage.setItem("adminToken", token);
-        }
+        const token = await getAdminToken();
+        if (!token) return;
         const res = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (res.status === 401) sessionStorage.removeItem("adminToken");
@@ -842,6 +942,15 @@
     document.getElementById("generateBtn").addEventListener("click", generateDaily);
     document.getElementById("rerunBtn").addEventListener("click", rerunToday);
     document.getElementById("clearTokenBtn").addEventListener("click", clearToken);
+    document.getElementById("confirmTokenBtn").addEventListener("click", confirmToken);
+    document.getElementById("cancelTokenBtn").addEventListener("click", cancelTokenInput);
+    document.getElementById("tokenModal").addEventListener("click", (event) => {
+      if (event.target.id === "tokenModal") cancelTokenInput();
+    });
+    document.getElementById("tokenInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") confirmToken();
+      if (event.key === "Escape") cancelTokenInput();
+    });
     {{end}}
     loadList().catch((err) => showToast(err.message, "error"));
     loadStatus().catch(() => {});
