@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"m-daily-news/internal/daily"
 	"m-daily-news/internal/generate"
@@ -36,11 +39,17 @@ func (s *Server) Generate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := s.generator.Run(r.Context(), req.Date)
+	slog.Info("generate request received", "date", req.Date)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	result, err := s.generator.Run(ctx, req.Date)
 	if err != nil {
+		slog.Warn("generate request failed", "date", req.Date, "error", err.Error())
 		writeJSON(w, statusForGenerateError(err), errorResponse{Success: false, Error: err.Error()})
 		return
 	}
+	slog.Info("generate request succeeded", "date", result.Date, "file", result.File)
 	writeJSON(w, http.StatusOK, generateResponse{
 		Success: true,
 		Date:    result.Date,
