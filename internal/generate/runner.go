@@ -21,6 +21,7 @@ type Runner struct {
 	store    *daily.Store
 	searcher Searcher
 	llm      llm.Client
+	retry    RetryConfig
 	mu       sync.Mutex
 	status   Status
 	now      func() time.Time
@@ -29,13 +30,27 @@ type Runner struct {
 var ErrRunning = errors.New("generation already running")
 
 func NewRunner(store *daily.Store, searcher Searcher, llmClient llm.Client) *Runner {
-	return &Runner{store: store, searcher: searcher, llm: llmClient, now: time.Now}
+	return NewRunnerWithRetry(store, searcher, llmClient, DefaultRetryConfig)
+}
+
+func NewRunnerWithRetry(store *daily.Store, searcher Searcher, llmClient llm.Client, retry RetryConfig) *Runner {
+	retry = retry.normalized()
+	return &Runner{
+		store:    store,
+		searcher: searcher,
+		llm:      llmClient,
+		retry:    retry,
+		status:   Status{MaxAttempts: retry.MaxAttempts},
+		now:      time.Now,
+	}
 }
 
 func (r *Runner) Status() Status {
 	r.mu.Lock()
 	status := r.status
+	status.AttemptErrors = append([]string(nil), r.status.AttemptErrors...)
 	r.mu.Unlock()
+	status.MaxAttempts = r.retry.normalized().MaxAttempts
 
 	status.TodayReady = false
 	if !status.Running {
@@ -59,6 +74,7 @@ func (r *Runner) RerunToday(ctx context.Context) (*Result, error) {
 
 func (r *Runner) run(ctx context.Context, rawDate string, replace bool) (*Result, error) {
 	start := r.now()
+	retry := r.retry.normalized()
 	date, err := daily.NormalizeDate(rawDate, r.now())
 	if err != nil {
 		return nil, err
@@ -77,6 +93,10 @@ func (r *Runner) run(ctx context.Context, rawDate string, replace bool) (*Result
 	}
 	r.status.Running = true
 	r.status.LastError = ""
+	r.status.Attempts = 0
+	r.status.MaxAttempts = retry.MaxAttempts
+	r.status.LastStage = ""
+	r.status.AttemptErrors = nil
 	r.mu.Unlock()
 
 	defer func() {
@@ -89,57 +109,126 @@ func (r *Runner) run(ctx context.Context, rawDate string, replace bool) (*Result
 
 	if !replace {
 		if exists, err := r.store.Exists(date); err != nil {
-			r.fail(err)
+			r.fail("", err)
 			slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "exists", "error", err.Error())
 			return nil, err
 		} else if exists {
-			r.fail(daily.ErrExists)
+			r.fail("", daily.ErrExists)
 			slog.Warn("daily generation skipped", "date", date, "mode", mode, "reason", "already_exists")
 			return nil, daily.ErrExists
 		}
 	}
 
-	searchStart := r.now()
-	results, err := r.searcher.SearchDailySources(ctx, date)
+	results, err := r.searchWithRetry(ctx, date, mode, retry)
 	if err != nil {
-		err = fmt.Errorf("search: %w", err)
-		r.fail(err)
-		slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "search", "duration", r.now().Sub(searchStart).String(), "error", err.Error())
 		return nil, err
 	}
-	slog.Info("daily generation search completed", "date", date, "mode", mode, "results", len(results), "duration", r.now().Sub(searchStart).String())
 
-	llmStart := r.now()
-	markdown, err := r.llm.WriteDaily(ctx, date, results)
+	result, err := r.writeWithRetry(ctx, date, mode, replace, results, retry)
 	if err != nil {
-		err = fmt.Errorf("llm: %w", err)
-		r.fail(err)
-		slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "llm", "duration", r.now().Sub(llmStart).String(), "error", err.Error())
 		return nil, err
 	}
-	slog.Info("daily generation llm completed", "date", date, "mode", mode, "bytes", len(markdown), "duration", r.now().Sub(llmStart).String())
 
-	writeStart := r.now()
-	file, err := r.write(date, markdown, replace)
-	if err != nil {
-		r.fail(err)
-		slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "write", "duration", r.now().Sub(writeStart).String(), "error", err.Error())
-		return nil, err
-	}
-	slog.Info("daily generation write completed", "date", date, "mode", mode, "file", file, "duration", r.now().Sub(writeStart).String())
-
-	result := &Result{
-		Date:    date,
-		File:    file,
-		Summary: daily.ExtractSummary(markdown),
-	}
 	r.mu.Lock()
 	r.status.LastSuccess = true
-	r.status.LastFile = file
+	r.status.LastFile = result.File
 	r.status.LastError = ""
+	r.status.Attempts = result.Attempts
+	r.status.LastStage = ""
 	r.mu.Unlock()
-	slog.Info("daily generation completed", "date", date, "mode", mode, "file", file, "duration", r.now().Sub(start).String())
+	slog.Info("daily generation completed", "date", date, "mode", mode, "file", result.File, "attempts", result.Attempts, "duration", r.now().Sub(start).String())
 	return result, nil
+}
+
+func (r *Runner) searchWithRetry(ctx context.Context, date, mode string, retry RetryConfig) ([]search.Result, error) {
+	for attempt := 1; attempt <= retry.MaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			r.fail("search", err)
+			slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "search", "attempt", attempt, "max_attempts", retry.MaxAttempts, "error", err.Error())
+			return nil, err
+		}
+
+		r.setStage("search", attempt)
+		attemptStart := r.now()
+		slog.Info("daily generation attempt started", "date", date, "mode", mode, "stage", "search", "attempt", attempt, "max_attempts", retry.MaxAttempts)
+
+		results, err := r.searcher.SearchDailySources(ctx, date)
+		duration := r.now().Sub(attemptStart)
+		if err == nil {
+			slog.Info("daily generation search completed", "date", date, "mode", mode, "attempt", attempt, "results", len(results), "duration", duration.String())
+			return results, nil
+		}
+
+		err = fmt.Errorf("search: %w", err)
+		r.failAttempt("search", attempt, err)
+		slog.Error("daily generation attempt failed", "date", date, "mode", mode, "stage", "search", "attempt", attempt, "max_attempts", retry.MaxAttempts, "duration", duration.String(), "error", err.Error())
+		if !retryable("search", err) || attempt == retry.MaxAttempts {
+			slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "search", "attempt", attempt, "max_attempts", retry.MaxAttempts, "duration", duration.String(), "error", err.Error())
+			return nil, err
+		}
+		if err := r.waitBeforeRetry(ctx, date, mode, "search", attempt, retry); err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
+}
+
+func (r *Runner) writeWithRetry(ctx context.Context, date, mode string, replace bool, results []search.Result, retry RetryConfig) (*Result, error) {
+	for attempt := 1; attempt <= retry.MaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			r.fail("llm", err)
+			slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "llm", "attempt", attempt, "max_attempts", retry.MaxAttempts, "error", err.Error())
+			return nil, err
+		}
+
+		r.setStage("llm", attempt)
+		attemptStart := r.now()
+		slog.Info("daily generation attempt started", "date", date, "mode", mode, "stage", "llm", "attempt", attempt, "max_attempts", retry.MaxAttempts)
+
+		llmStart := r.now()
+		markdown, err := r.llm.WriteDaily(ctx, date, results)
+		llmDuration := r.now().Sub(llmStart)
+		if err != nil {
+			err = fmt.Errorf("llm: %w", err)
+			r.failAttempt("llm", attempt, err)
+			slog.Error("daily generation attempt failed", "date", date, "mode", mode, "stage", "llm", "attempt", attempt, "max_attempts", retry.MaxAttempts, "duration", llmDuration.String(), "error", err.Error())
+			if !retryable("llm", err) || attempt == retry.MaxAttempts {
+				slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "llm", "attempt", attempt, "max_attempts", retry.MaxAttempts, "duration", llmDuration.String(), "error", err.Error())
+				return nil, err
+			}
+			if err := r.waitBeforeRetry(ctx, date, mode, "llm", attempt, retry); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		slog.Info("daily generation llm completed", "date", date, "mode", mode, "attempt", attempt, "bytes", len(markdown), "duration", llmDuration.String())
+
+		r.setStage("write", attempt)
+		writeStart := r.now()
+		file, err := r.write(date, markdown, replace)
+		writeDuration := r.now().Sub(writeStart)
+		if err != nil {
+			r.failAttempt("write", attempt, err)
+			slog.Error("daily generation attempt failed", "date", date, "mode", mode, "stage", "write", "attempt", attempt, "max_attempts", retry.MaxAttempts, "duration", writeDuration.String(), "error", err.Error())
+			if !retryable("write", err) || attempt == retry.MaxAttempts {
+				slog.Error("daily generation failed", "date", date, "mode", mode, "stage", "write", "attempt", attempt, "max_attempts", retry.MaxAttempts, "duration", writeDuration.String(), "error", err.Error())
+				return nil, err
+			}
+			if err := r.waitBeforeRetry(ctx, date, mode, "write", attempt, retry); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		slog.Info("daily generation write completed", "date", date, "mode", mode, "attempt", attempt, "file", file, "duration", writeDuration.String(), "total_attempt_duration", r.now().Sub(attemptStart).String())
+
+		return &Result{
+			Date:     date,
+			File:     file,
+			Summary:  daily.ExtractSummary(markdown),
+			Attempts: attempt,
+		}, nil
+	}
+	return nil, nil
 }
 
 func (r *Runner) write(date, markdown string, replace bool) (string, error) {
@@ -149,9 +238,59 @@ func (r *Runner) write(date, markdown string, replace bool) (string, error) {
 	return r.store.WriteValidated(date, markdown)
 }
 
-func (r *Runner) fail(err error) {
+func (r *Runner) waitBeforeRetry(ctx context.Context, date, mode, stage string, attempt int, retry RetryConfig) error {
+	slog.Info("daily generation retry scheduled", "date", date, "mode", mode, "stage", stage, "attempt", attempt, "max_attempts", retry.MaxAttempts, "delay", retry.BaseDelay.String())
+	if err := sleepRetry(ctx, retry.BaseDelay); err != nil {
+		r.fail(stage, err)
+		slog.Error("daily generation failed", "date", date, "mode", mode, "stage", stage, "attempt", attempt, "max_attempts", retry.MaxAttempts, "error", err.Error())
+		return err
+	}
+	return nil
+}
+
+func (r *Runner) setStage(stage string, attempt int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status.LastStage = stage
+	if attempt > 0 {
+		r.status.Attempts = attempt
+	}
+}
+
+func (r *Runner) fail(stage string, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.status.LastSuccess = false
 	r.status.LastError = err.Error()
+	if stage != "" {
+		r.status.LastStage = stage
+	}
+}
+
+func (r *Runner) failAttempt(stage string, attempt int, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status.LastSuccess = false
+	r.status.LastError = err.Error()
+	r.status.LastStage = stage
+	r.status.Attempts = attempt
+	r.status.AttemptErrors = appendAttemptError(r.status.AttemptErrors, stage, attempt, err)
+}
+
+func appendAttemptError(errors []string, stage string, attempt int, err error) []string {
+	entry := fmt.Sprintf("%s attempt %d: %s", stage, attempt, truncate(err.Error(), 500))
+	if len(errors) >= 3 {
+		copy(errors, errors[1:])
+		errors[len(errors)-1] = entry
+		return errors
+	}
+	return append(errors, entry)
+}
+
+func truncate(value string, maxRunes int) string {
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes]) + "..."
 }

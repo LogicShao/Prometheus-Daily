@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -36,6 +37,15 @@ func TestGenerateAndReadFlow(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var generateBody struct {
+		Attempts int `json:"attempts"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &generateBody); err != nil {
+		t.Fatalf("generate json: %v", err)
+	}
+	if generateBody.Attempts != 1 {
+		t.Fatalf("attempts=%d, want 1", generateBody.Attempts)
 	}
 
 	rerunReq := httptest.NewRequest(http.MethodPost, "/api/generate/rerun", nil)
@@ -118,14 +128,102 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("status code=%d body=%s", statusResp.Code, statusResp.Body.String())
 	}
 	var status struct {
-		Running    bool   `json:"running"`
-		TodayReady bool   `json:"today_ready"`
-		LastError  string `json:"last_error"`
+		Running     bool     `json:"running"`
+		TodayReady  bool     `json:"today_ready"`
+		LastError   string   `json:"last_error"`
+		Attempts    int      `json:"attempts"`
+		MaxAttempts int      `json:"max_attempts"`
+		LastStage   string   `json:"last_stage"`
+		Errors      []string `json:"attempt_errors"`
 	}
 	if err := json.Unmarshal(statusResp.Body.Bytes(), &status); err != nil {
 		t.Fatalf("status json: %v", err)
 	}
-	if status.Running || !status.TodayReady || status.LastError != "" {
+	if status.Running || !status.TodayReady || status.LastError != "" || status.Attempts != 1 || status.MaxAttempts != 3 || status.LastStage != "" || len(status.Errors) != 0 {
+		t.Fatalf("unexpected status %#v", status)
+	}
+}
+
+func TestGenerateRetriesInvalidMarkdownAndReturnsOK(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	today := time.Now().Format("2006-01-02")
+	llm := &apiSequenceLLM{
+		markdowns: []string{
+			apiInvalidMarkdown(today),
+			apiMarkdown(today, apiSummary),
+		},
+	}
+	runner := generate.NewRunnerWithRetry(store, apiSearcher{}, llm, generate.RetryConfig{MaxAttempts: 3})
+	router := httpapi.NewRouter(store, runner, "secret", storeWorkspace(store), time.Now())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"date":"`+today+`"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Attempts int `json:"attempts"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("generate json: %v", err)
+	}
+	if body.Attempts != 2 || llm.calls != 2 {
+		t.Fatalf("attempts=%d llm calls=%d, want 2/2", body.Attempts, llm.calls)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	statusResp := httptest.NewRecorder()
+	router.ServeHTTP(statusResp, statusReq)
+	var status struct {
+		Attempts      int      `json:"attempts"`
+		MaxAttempts   int      `json:"max_attempts"`
+		LastStage     string   `json:"last_stage"`
+		AttemptErrors []string `json:"attempt_errors"`
+		LastError     string   `json:"last_error"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &status); err != nil {
+		t.Fatalf("status json: %v", err)
+	}
+	if status.Attempts != 2 || status.MaxAttempts != 3 || status.LastStage != "" || status.LastError != "" || len(status.AttemptErrors) != 1 {
+		t.Fatalf("unexpected status %#v", status)
+	}
+}
+
+func TestGenerateRetryExhaustedReturnsInternalServerError(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	today := time.Now().Format("2006-01-02")
+	llm := &apiSequenceLLM{err: errors.New("temporary llm failure")}
+	runner := generate.NewRunnerWithRetry(store, apiSearcher{}, llm, generate.RetryConfig{MaxAttempts: 3})
+	router := httpapi.NewRouter(store, runner, "secret", storeWorkspace(store), time.Now())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"date":"`+today+`"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if llm.calls != 3 {
+		t.Fatalf("llm calls=%d, want 3", llm.calls)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	statusResp := httptest.NewRecorder()
+	router.ServeHTTP(statusResp, statusReq)
+	var status struct {
+		Attempts      int      `json:"attempts"`
+		MaxAttempts   int      `json:"max_attempts"`
+		LastStage     string   `json:"last_stage"`
+		AttemptErrors []string `json:"attempt_errors"`
+		LastError     string   `json:"last_error"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &status); err != nil {
+		t.Fatalf("status json: %v", err)
+	}
+	if status.Attempts != 3 || status.MaxAttempts != 3 || status.LastStage != "llm" || status.LastError == "" || len(status.AttemptErrors) != 3 {
 		t.Fatalf("unexpected status %#v", status)
 	}
 }
@@ -190,9 +288,27 @@ func (apiSearcher) SearchDailySources(context.Context, string) ([]search.Result,
 type apiLLM struct{}
 
 func (apiLLM) WriteDaily(_ context.Context, date string, _ []search.Result) (string, error) {
+	return apiMarkdown(date, apiSummary), nil
+}
+
+type apiSequenceLLM struct {
+	markdowns []string
+	err       error
+	calls     int
+}
+
+func (l *apiSequenceLLM) WriteDaily(_ context.Context, date string, _ []search.Result) (string, error) {
+	l.calls++
+	if l.err != nil {
+		return "", l.err
+	}
+	return l.markdowns[min(l.calls-1, len(l.markdowns)-1)], nil
+}
+
+func apiMarkdown(date, summary string) string {
 	return `---
 date: ` + date + `
-summary: "` + apiSummary + `"
+summary: "` + summary + `"
 tags: [AI, Agent]
 ---
 
@@ -236,7 +352,34 @@ URL: https://openai.com/index/api-generated
 为什么重要: It validates category coverage and confirms the structured detail endpoint returns the expected Markdown body.
 
 不确定性/风险: No obvious risk, but research claims should still be checked against primary sources.
-`, nil
+`
+}
+
+func apiInvalidMarkdown(date string) string {
+	return `---
+date: ` + date + `
+summary: "too short"
+tags: [AI]
+---
+
+# 日报 ` + date + `
+
+## API generated item
+
+URL: https://example.com/api
+来源: Example
+发布日期: ` + date + `
+类型: 产品
+
+摘要: Too short.
+`
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 const apiSummary = "API generated summary now carries enough detail to represent the report and prove frontmatter metadata is returned correctly."
