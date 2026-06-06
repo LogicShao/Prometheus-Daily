@@ -17,6 +17,7 @@ import (
 	"m-daily-news/internal/httpapi"
 	"m-daily-news/internal/reportmode"
 	"m-daily-news/internal/search"
+	"m-daily-news/internal/version"
 )
 
 func TestGenerateAndReadFlow(t *testing.T) {
@@ -40,14 +41,15 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
 	}
 	var generateBody struct {
-		Attempts int    `json:"attempts"`
-		Mode     string `json:"mode"`
+		AppVersion string `json:"app_version"`
+		Attempts   int    `json:"attempts"`
+		Mode       string `json:"mode"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &generateBody); err != nil {
 		t.Fatalf("generate json: %v", err)
 	}
-	if generateBody.Attempts != 1 || generateBody.Mode != "balanced" {
-		t.Fatalf("generate body=%#v, want attempts=1 mode=balanced", generateBody)
+	if generateBody.AppVersion != version.Default || generateBody.Attempts != 1 || generateBody.Mode != "balanced" {
+		t.Fatalf("generate body=%#v, want app_version=%s attempts=1 mode=balanced", generateBody, version.Default)
 	}
 
 	rerunReq := httptest.NewRequest(http.MethodPost, "/api/generate/rerun", nil)
@@ -65,6 +67,11 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("list status=%d", listResp.Code)
 	}
 	var list struct {
+		Items []struct {
+			Date       string `json:"date"`
+			AppVersion string `json:"app_version"`
+			Summary    string `json:"summary"`
+		} `json:"items"`
 		Total int `json:"total"`
 	}
 	if err := json.Unmarshal(listResp.Body.Bytes(), &list); err != nil {
@@ -72,6 +79,9 @@ func TestGenerateAndReadFlow(t *testing.T) {
 	}
 	if list.Total != 1 {
 		t.Fatalf("total=%d, want 1", list.Total)
+	}
+	if len(list.Items) != 1 || list.Items[0].Date != today || list.Items[0].AppVersion != version.Default || list.Items[0].Summary != apiSummary {
+		t.Fatalf("unexpected list %#v", list)
 	}
 
 	detailReq := httptest.NewRequest(http.MethodGet, "/api/daily/"+today, nil)
@@ -81,22 +91,25 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("detail status=%d body=%s", detailResp.Code, detailResp.Body.String())
 	}
 	var detail struct {
-		Date    string   `json:"date"`
-		Summary string   `json:"summary"`
-		Tags    []string `json:"tags"`
-		Body    string   `json:"body"`
+		Date       string   `json:"date"`
+		AppVersion string   `json:"app_version"`
+		Summary    string   `json:"summary"`
+		Tags       []string `json:"tags"`
+		Body       string   `json:"body"`
 	}
 	if err := json.Unmarshal(detailResp.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("detail json: %v", err)
 	}
-	if detail.Date != today || detail.Summary != apiSummary || len(detail.Tags) != 2 || !strings.Contains(detail.Body, "## API generated item") {
+	if detail.Date != today || detail.AppVersion != version.Default || detail.Summary != apiSummary || len(detail.Tags) != 2 || !strings.Contains(detail.Body, "## API generated item") {
 		t.Fatalf("unexpected detail %#v", detail)
 	}
 
 	rawReq := httptest.NewRequest(http.MethodGet, "/api/daily/"+today+"/raw", nil)
 	rawResp := httptest.NewRecorder()
 	router.ServeHTTP(rawResp, rawReq)
-	if rawResp.Code != http.StatusOK || !strings.Contains(rawResp.Body.String(), "## API generated item") {
+	if rawResp.Code != http.StatusOK ||
+		!strings.Contains(rawResp.Body.String(), "app_version: "+version.Default) ||
+		!strings.Contains(rawResp.Body.String(), "## API generated item") {
 		t.Fatalf("raw status=%d body=%s", rawResp.Code, rawResp.Body.String())
 	}
 

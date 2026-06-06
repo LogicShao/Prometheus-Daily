@@ -10,6 +10,7 @@ Prometheus Daily（普罗米修斯日报）是一个轻量 AI 技术日报系统
 - Tavily API 可选补充
 - DeepSeek/OpenAI 兼容 LLM 生成日报
 - Markdown frontmatter 校验
+- 新日报 frontmatter 自动写入项目版本 `app_version`
 - 临时文件校验后原子落盘
 - `content/daily/YYYY-MM-DD.md` 文件存储
 - `POST /api/generate` Bearer token 认证
@@ -28,6 +29,7 @@ internal/generate/   生成流水线编排
 internal/httpapi/    HTTP handler 和 middleware
 templates/           单文件前端模板
 content/daily/       日报 Markdown 源文件
+VERSION             项目版本号，写入新日报 app_version
 ```
 
 ## Requirements
@@ -55,6 +57,7 @@ PORT=8080
 
 `ADMIN_TOKEN` 用于保护生成接口。不要提交 `.env`。
 `DAILY_REPORT_MODE` 用于设置定时任务和默认手动生成模式，可选 `balanced`（均衡模式）或 `research`（研究优先模式）。手动生成和重跑接口可以在请求体里用 `mode` 临时覆盖。
+`VERSION` 是项目版本的单一来源。服务生成或重跑日报时会在 frontmatter 中自动注入 `app_version`，用于核对日报由哪个项目版本生成；旧日报没有该字段仍可读取。
 
 Docker 部署默认使用 `TZ=Asia/Shanghai`，并在每天 09:00 自动触发日报生成。如果当天日报已存在，调度任务会跳过。
 
@@ -112,6 +115,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 | `GET` | `/` | 前端页面 |
 | `GET` | `/about` | 项目介绍页面 |
 | `GET` | `/api/daily` | 日报列表 |
+| `GET` | `/api/daily/{date}` | 日报详情，包含 `app_version` |
 | `GET` | `/api/daily/{date}/raw` | 原始 Markdown |
 | `GET` | `/feed.xml` | RSS 订阅 |
 | `GET` | `/rss.xml` | RSS 订阅别名 |

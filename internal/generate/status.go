@@ -22,11 +22,12 @@ type Status struct {
 }
 
 type Result struct {
-	Date     string `json:"date"`
-	File     string `json:"file"`
-	Summary  string `json:"summary"`
-	Attempts int    `json:"attempts"`
-	Mode     string `json:"mode,omitempty"`
+	Date       string `json:"date"`
+	File       string `json:"file"`
+	AppVersion string `json:"app_version,omitempty"`
+	Summary    string `json:"summary"`
+	Attempts   int    `json:"attempts"`
+	Mode       string `json:"mode,omitempty"`
 }
 
 type Options struct {

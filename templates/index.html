@@ -270,6 +270,12 @@
       padding: 3px 7px;
     }
 
+    .date-badge.version {
+      color: var(--muted-strong);
+      background: rgba(148, 163, 184, .10);
+      border-color: rgba(148, 163, 184, .22);
+    }
+
     .summary {
       margin-top: 7px;
       color: var(--muted);
@@ -390,6 +396,13 @@
     .report-meta-date {
       color: var(--muted-strong);
       font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .report-meta-version {
+      color: var(--muted);
+      font-size: 12px;
       font-weight: 700;
       letter-spacing: 0;
     }
@@ -781,7 +794,8 @@
         dateText.textContent = item.date;
         const badge = document.createElement("span");
         badge.className = "date-badge";
-        badge.textContent = "日报";
+        badge.textContent = item.app_version ? `v${item.app_version}` : "日报";
+        if (item.app_version) badge.classList.add("version");
 
         const summary = document.createElement("div");
         summary.className = "summary";
@@ -823,6 +837,15 @@
       date.className = "report-meta-date";
       date.textContent = `报告日期 ${data.date || currentDate}`;
 
+      if (data.app_version) {
+        const version = document.createElement("span");
+        version.className = "report-meta-version";
+        version.textContent = `版本 v${data.app_version}`;
+        metaTop.append(date, version);
+      } else {
+        metaTop.append(date);
+      }
+
       const summary = document.createElement("p");
       summary.className = "report-meta-summary";
       summary.textContent = data.summary || "暂无摘要";
@@ -836,7 +859,6 @@
         tags.appendChild(chip);
       });
 
-      metaTop.append(date);
       meta.append(metaTop, summary, tags);
 
       const body = document.createElement("div");

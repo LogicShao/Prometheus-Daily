@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"m-daily-news/internal/daily"
+	"m-daily-news/internal/version"
 )
 
 func TestStoreWriteListReadAndDuplicate(t *testing.T) {
@@ -27,7 +28,7 @@ func TestStoreWriteListReadAndDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(items) != 1 || items[0].Date != "2026-05-30" || items[0].Summary != testSummary {
+	if len(items) != 1 || items[0].Date != "2026-05-30" || items[0].AppVersion != version.Default || items[0].Summary != testSummary {
 		t.Fatalf("unexpected items %#v", items)
 	}
 
@@ -35,8 +36,15 @@ func TestStoreWriteListReadAndDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRaw: %v", err)
 	}
-	if string(raw) != md {
-		t.Fatalf("raw mismatch")
+	fm, _, err := daily.ParseFrontmatter(string(raw))
+	if err != nil {
+		t.Fatalf("ParseFrontmatter: %v", err)
+	}
+	if fm.AppVersion != version.Default {
+		t.Fatalf("app_version=%q, want %q", fm.AppVersion, version.Default)
+	}
+	if !strings.Contains(string(raw), "\napp_version: "+version.Default+"\n") {
+		t.Fatalf("stored report missing app_version: %s", string(raw))
 	}
 
 	if _, err := store.WriteValidated("2026-05-30", md); !errors.Is(err, daily.ErrExists) {
@@ -87,6 +95,34 @@ tags: [AI]
 	target := filepath.Join(workspace, "content", "daily", "2026-05-30.md")
 	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("target stat err=%v, want not exist", err)
+	}
+}
+
+func TestStoreInjectsWorkspaceVersionAndReplacesModelVersion(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "VERSION"), []byte("1.2.3\n"), 0644); err != nil {
+		t.Fatalf("WriteFile VERSION: %v", err)
+	}
+	store := daily.NewStore(workspace)
+	md := strings.Replace(validMarkdown("2026-05-30"), "date: 2026-05-30\n", "date: 2026-05-30\napp_version: 9.9.9\n", 1)
+
+	if _, err := store.WriteValidated("2026-05-30", md); err != nil {
+		t.Fatalf("WriteValidated: %v", err)
+	}
+
+	raw, err := store.ReadRaw("2026-05-30")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	fm, _, err := daily.ParseFrontmatter(string(raw))
+	if err != nil {
+		t.Fatalf("ParseFrontmatter: %v", err)
+	}
+	if fm.AppVersion != "1.2.3" {
+		t.Fatalf("app_version=%q, want 1.2.3", fm.AppVersion)
+	}
+	if strings.Contains(string(raw), "app_version: 9.9.9") {
+		t.Fatalf("model-provided app_version should be replaced: %s", string(raw))
 	}
 }
 

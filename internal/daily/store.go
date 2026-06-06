@@ -7,12 +7,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"m-daily-news/internal/version"
 )
 
 type Item struct {
-	Date    string `json:"date"`
-	Summary string `json:"summary"`
-	File    string `json:"file"`
+	Date       string `json:"date"`
+	AppVersion string `json:"app_version,omitempty"`
+	Summary    string `json:"summary"`
+	File       string `json:"file"`
 }
 
 type Store struct {
@@ -27,6 +30,10 @@ func NewStore(workspace string) *Store {
 
 func (s *Store) Dir() string {
 	return filepath.Join(s.workspace, "content", "daily")
+}
+
+func (s *Store) AppVersion() string {
+	return version.Read(s.workspace)
 }
 
 func (s *Store) Path(date string) (string, error) {
@@ -59,8 +66,8 @@ func (s *Store) List() ([]Item, error) {
 		if !IsDate(date) {
 			continue
 		}
-		summary, _ := s.summary(filepath.Join(s.Dir(), entry.Name()))
-		items = append(items, Item{Date: date, Summary: summary, File: entry.Name()})
+		fm, _ := s.metadata(filepath.Join(s.Dir(), entry.Name()))
+		items = append(items, Item{Date: date, AppVersion: fm.AppVersion, Summary: fm.Summary, File: entry.Name()})
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -140,6 +147,11 @@ func (s *Store) writeValidated(date, markdown string, replace bool) (string, err
 		return "", err
 	}
 
+	markdown, err = InjectAppVersion(markdown, s.AppVersion())
+	if err != nil {
+		return "", err
+	}
+
 	tmp, err := os.CreateTemp(dir, "."+date+"-*.md")
 	if err != nil {
 		return "", err
@@ -163,16 +175,18 @@ func (s *Store) writeValidated(date, markdown string, replace bool) (string, err
 	return target, nil
 }
 
-func (s *Store) summary(path string) (string, error) {
+func (s *Store) metadata(path string) (Frontmatter, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return Frontmatter{}, err
 	}
 	fm, _, err := ParseFrontmatter(string(data))
 	if err != nil {
-		return "", err
+		return Frontmatter{}, err
 	}
-	return strings.TrimSpace(fm.Summary), nil
+	fm.Summary = strings.TrimSpace(fm.Summary)
+	fm.AppVersion = strings.TrimSpace(fm.AppVersion)
+	return fm, nil
 }
 
 func ExtractSummary(raw string) string {

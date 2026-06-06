@@ -11,6 +11,7 @@ import (
 	"m-daily-news/internal/generate"
 	"m-daily-news/internal/reportmode"
 	"m-daily-news/internal/search"
+	"m-daily-news/internal/version"
 )
 
 func TestRunnerRun(t *testing.T) {
@@ -22,7 +23,7 @@ func TestRunnerRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if result.Date != today || result.Summary != generatedSummary {
+	if result.Date != today || result.AppVersion != version.Default || result.Summary != generatedSummary {
 		t.Fatalf("unexpected result %#v", result)
 	}
 	if result.Attempts != 1 {

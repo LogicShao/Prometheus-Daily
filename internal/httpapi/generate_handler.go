@@ -20,13 +20,14 @@ type generateRequest struct {
 }
 
 type generateResponse struct {
-	Success  bool   `json:"success"`
-	Date     string `json:"date,omitempty"`
-	File     string `json:"file,omitempty"`
-	Summary  string `json:"summary,omitempty"`
-	Attempts int    `json:"attempts,omitempty"`
-	Mode     string `json:"mode,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Success    bool   `json:"success"`
+	Date       string `json:"date,omitempty"`
+	File       string `json:"file,omitempty"`
+	AppVersion string `json:"app_version,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Attempts   int    `json:"attempts,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type errorResponse struct {
@@ -60,12 +61,13 @@ func (s *Server) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("generate request succeeded", "date", result.Date, "file", result.File, "report_mode", result.Mode)
 	writeJSON(w, http.StatusOK, generateResponse{
-		Success:  true,
-		Date:     result.Date,
-		File:     result.File,
-		Summary:  result.Summary,
-		Attempts: result.Attempts,
-		Mode:     result.Mode,
+		Success:    true,
+		Date:       result.Date,
+		File:       result.File,
+		AppVersion: result.AppVersion,
+		Summary:    result.Summary,
+		Attempts:   result.Attempts,
+		Mode:       result.Mode,
 	})
 }
 
@@ -95,12 +97,13 @@ func (s *Server) RerunToday(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("generate rerun request succeeded", "date", result.Date, "file", result.File, "report_mode", result.Mode)
 	writeJSON(w, http.StatusOK, generateResponse{
-		Success:  true,
-		Date:     result.Date,
-		File:     result.File,
-		Summary:  result.Summary,
-		Attempts: result.Attempts,
-		Mode:     result.Mode,
+		Success:    true,
+		Date:       result.Date,
+		File:       result.File,
+		AppVersion: result.AppVersion,
+		Summary:    result.Summary,
+		Attempts:   result.Attempts,
+		Mode:       result.Mode,
 	})
 }
 

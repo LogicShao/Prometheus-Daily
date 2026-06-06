@@ -242,11 +242,12 @@ func (r *Runner) writeWithRetry(ctx context.Context, date, mode string, reportMo
 		slog.Info("daily generation write completed", "date", date, "mode", mode, "report_mode", reportMode, "attempt", attempt, "file", file, "duration", writeDuration.String(), "total_attempt_duration", r.now().Sub(attemptStart).String())
 
 		return &Result{
-			Date:     date,
-			File:     file,
-			Summary:  daily.ExtractSummary(markdown),
-			Attempts: attempt,
-			Mode:     string(reportMode),
+			Date:       date,
+			File:       file,
+			AppVersion: r.store.AppVersion(),
+			Summary:    daily.ExtractSummary(markdown),
+			Attempts:   attempt,
+			Mode:       string(reportMode),
 		}, nil
 	}
 	return nil, nil

@@ -6,9 +6,10 @@ import (
 )
 
 type Frontmatter struct {
-	Date    string
-	Summary string
-	Tags    []string
+	Date       string
+	AppVersion string
+	Summary    string
+	Tags       []string
 }
 
 var ErrFrontmatter = errors.New("invalid frontmatter")
@@ -38,6 +39,8 @@ func ParseFrontmatter(raw string) (Frontmatter, string, error) {
 		switch strings.TrimSpace(key) {
 		case "date":
 			fm.Date = value
+		case "app_version":
+			fm.AppVersion = value
 		case "summary":
 			fm.Summary = value
 		case "tags":
@@ -46,6 +49,46 @@ func ParseFrontmatter(raw string) (Frontmatter, string, error) {
 	}
 
 	return fm, body, nil
+}
+
+func InjectAppVersion(raw, appVersion string) (string, error) {
+	if !strings.HasPrefix(raw, "---\n") {
+		return "", ErrFrontmatter
+	}
+
+	rest := raw[len("---\n"):]
+	end := strings.Index(rest, "\n---\n")
+	if end < 0 {
+		return "", ErrFrontmatter
+	}
+
+	block := rest[:end]
+	body := rest[end+len("\n---\n"):]
+	lines := strings.Split(block, "\n")
+	out := make([]string, 0, len(lines)+1)
+	inserted := false
+
+	for _, line := range lines {
+		key, _, ok := strings.Cut(line, ":")
+		if ok && strings.TrimSpace(key) == "app_version" {
+			if !inserted {
+				out = append(out, "app_version: "+appVersion)
+				inserted = true
+			}
+			continue
+		}
+
+		out = append(out, line)
+		if ok && strings.TrimSpace(key) == "date" && !inserted {
+			out = append(out, "app_version: "+appVersion)
+			inserted = true
+		}
+	}
+
+	if !inserted {
+		out = append(out, "app_version: "+appVersion)
+	}
+	return "---\n" + strings.Join(out, "\n") + "\n---\n" + body, nil
 }
 
 func parseTags(raw string) []string {

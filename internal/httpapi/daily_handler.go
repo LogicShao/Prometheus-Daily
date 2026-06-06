@@ -9,10 +9,11 @@ import (
 )
 
 type detailResponse struct {
-	Date    string   `json:"date"`
-	Summary string   `json:"summary"`
-	Tags    []string `json:"tags"`
-	Body    string   `json:"body"`
+	Date       string   `json:"date"`
+	AppVersion string   `json:"app_version,omitempty"`
+	Summary    string   `json:"summary"`
+	Tags       []string `json:"tags"`
+	Body       string   `json:"body"`
 }
 
 type listResponse struct {
@@ -39,10 +40,11 @@ func (s *Server) GetDaily(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, detailResponse{
-		Date:    fm.Date,
-		Summary: fm.Summary,
-		Tags:    fm.Tags,
-		Body:    strings.TrimSpace(body),
+		Date:       fm.Date,
+		AppVersion: fm.AppVersion,
+		Summary:    fm.Summary,
+		Tags:       fm.Tags,
+		Body:       strings.TrimSpace(body),
 	})
 }
 

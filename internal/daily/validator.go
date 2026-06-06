@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"m-daily-news/internal/version"
 )
 
 var (
@@ -47,6 +49,9 @@ func Validate(raw, expectedDate string) error {
 	}
 	if fm.Date != expectedDate {
 		return fmt.Errorf("%w: date mismatch", ErrInvalidMarkdown)
+	}
+	if fm.AppVersion != "" && !version.IsValid(fm.AppVersion) {
+		return fmt.Errorf("%w: app_version must be semver", ErrInvalidMarkdown)
 	}
 	if strings.TrimSpace(fm.Summary) == "" {
 		return fmt.Errorf("%w: summary required", ErrInvalidMarkdown)

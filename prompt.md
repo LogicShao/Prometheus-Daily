@@ -3,7 +3,7 @@
 要求：
 - 只输出日报 Markdown 本体，不要输出解释文字。
 - 不要使用 ```markdown 或任何代码块包裹输出。
-- 必须输出 frontmatter，包含 date、summary、tags，并且只能使用下面这种单行格式；不要使用 YAML 多行字符串、缩进数组或对象：
+- 必须输出 frontmatter，包含 date、summary、tags，并且只能使用下面这种单行格式；不要使用 YAML 多行字符串、缩进数组或对象。`app_version` 是服务端写入前自动注入的系统元数据，不要自行编写：
 
 ---
 date: 2026-05-30

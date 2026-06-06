@@ -15,6 +15,7 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /workspace
 
 COPY --from=build /out/m-daily-news /usr/local/bin/m-daily-news
+COPY VERSION ./VERSION
 COPY prompt.md ./prompt.md
 COPY templates ./templates
 COPY content ./content

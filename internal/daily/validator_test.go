@@ -28,3 +28,16 @@ func TestValidateRejectsVeryLongSummary(t *testing.T) {
 		t.Fatalf("unexpected error %v", err)
 	}
 }
+
+func TestValidateRejectsInvalidAppVersion(t *testing.T) {
+	date := "2026-05-30"
+	md := strings.Replace(validMarkdown(date), "date: "+date+"\n", "date: "+date+"\napp_version: v1\n", 1)
+
+	err := daily.Validate(md, date)
+	if err == nil {
+		t.Fatalf("expected invalid app_version validation error")
+	}
+	if !strings.Contains(err.Error(), "app_version must be semver") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
