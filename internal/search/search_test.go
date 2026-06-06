@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"m-daily-news/internal/reportmode"
 )
 
 func TestSearchProvidersAnnotatesQueryCategory(t *testing.T) {
@@ -123,6 +125,60 @@ func TestSelectBalancedResultsLimitsIndustryFrequency(t *testing.T) {
 	}
 	if industryCount != 1 {
 		t.Fatalf("industryCount=%d, want 1: %#v", industryCount, selected)
+	}
+}
+
+func TestSelectModeResultsKeepsResearchFloor(t *testing.T) {
+	results := sortResultsWithMode([]Result{
+		{Title: "Product 1", URL: "https://product-a.example.com/1", Category: CategoryProduct},
+		{Title: "Product 2", URL: "https://product-b.example.com/2", Category: CategoryProduct},
+		{Title: "Security", URL: "https://security.example.com/1", Category: CategorySecurity},
+		{Title: "arXiv cs.AI paper 1", URL: "https://arxiv.org/abs/2606.00001", Source: "cs.AI updates on arXiv.org", Category: CategoryResearch},
+		{Title: "arXiv cs.CL paper 2", URL: "https://arxiv.org/abs/2606.00002", Source: "cs.CL updates on arXiv.org", Category: CategoryResearch},
+	}, reportmode.Balanced)
+
+	selected := selectModeResults(results, reportmode.Balanced)
+	if researchCount(selected) < 2 {
+		t.Fatalf("researchCount=%d, want at least 2: %#v", researchCount(selected), selected)
+	}
+}
+
+func TestSelectResearchModeRaisesResearchFloorAndDropsIndustry(t *testing.T) {
+	results := []Result{
+		{Title: "Industry", URL: "https://industry.example.com/1", Category: CategoryIndustry},
+		{Title: "Product", URL: "https://product.example.com/1", Category: CategoryProduct},
+		{Title: "Security", URL: "https://security.example.com/1", Category: CategorySecurity},
+		{Title: "Paper 1", URL: "https://arxiv.org/abs/2606.00001", Source: "cs.AI updates on arXiv.org", Category: CategoryResearch},
+		{Title: "Paper 2", URL: "https://arxiv.org/abs/2606.00002", Source: "cs.AI updates on arXiv.org", Category: CategoryResearch},
+		{Title: "Paper 3", URL: "https://arxiv.org/abs/2606.00003", Source: "cs.CL updates on arXiv.org", Category: CategoryResearch},
+		{Title: "Paper 4", URL: "https://arxiv.org/abs/2606.00004", Source: "cs.CL updates on arXiv.org", Category: CategoryResearch},
+		{Title: "Paper 5", URL: "https://arxiv.org/abs/2606.00005", Source: "cs.AI updates on arXiv.org", Category: CategoryResearch},
+	}
+
+	selected := selectModeResults(sortResultsWithMode(results, reportmode.Research), reportmode.Research)
+	if researchCount(selected) < 5 {
+		t.Fatalf("researchCount=%d, want at least 5: %#v", researchCount(selected), selected)
+	}
+	for _, result := range selected {
+		if result.Category == CategoryIndustry {
+			t.Fatalf("research mode should drop industry result: %#v", selected)
+		}
+	}
+}
+
+func TestHistoryPenaltyLowersRepeatedResult(t *testing.T) {
+	results := []Result{
+		{Title: "Fresh benchmark for LLM agents", URL: "https://fresh.example.com/agent-benchmark", Category: CategoryResearch},
+		{Title: "Repeated Copilot release", URL: "https://github.blog/changelog/repeated-copilot", Category: CategoryProduct},
+	}
+	history := []string{"URL: https://github.blog/changelog/repeated-copilot\n## Repeated Copilot release"}
+
+	selected := sortResults(applyHistoryPenalty(results, history))
+	if selected[0].URL == "https://github.blog/changelog/repeated-copilot" {
+		t.Fatalf("repeated result ranked first: %#v", selected)
+	}
+	if selected[1].HistoryPenalty == 0 {
+		t.Fatalf("expected history penalty: %#v", selected)
 	}
 }
 

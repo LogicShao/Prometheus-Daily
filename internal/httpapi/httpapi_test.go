@@ -15,6 +15,7 @@ import (
 	"m-daily-news/internal/daily"
 	"m-daily-news/internal/generate"
 	"m-daily-news/internal/httpapi"
+	"m-daily-news/internal/reportmode"
 	"m-daily-news/internal/search"
 )
 
@@ -39,13 +40,14 @@ func TestGenerateAndReadFlow(t *testing.T) {
 		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
 	}
 	var generateBody struct {
-		Attempts int `json:"attempts"`
+		Attempts int    `json:"attempts"`
+		Mode     string `json:"mode"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &generateBody); err != nil {
 		t.Fatalf("generate json: %v", err)
 	}
-	if generateBody.Attempts != 1 {
-		t.Fatalf("attempts=%d, want 1", generateBody.Attempts)
+	if generateBody.Attempts != 1 || generateBody.Mode != "balanced" {
+		t.Fatalf("generate body=%#v, want attempts=1 mode=balanced", generateBody)
 	}
 
 	rerunReq := httptest.NewRequest(http.MethodPost, "/api/generate/rerun", nil)
@@ -141,6 +143,70 @@ func TestGenerateAndReadFlow(t *testing.T) {
 	}
 	if status.Running || !status.TodayReady || status.LastError != "" || status.Attempts != 1 || status.MaxAttempts != 3 || status.LastStage != "" || len(status.Errors) != 0 {
 		t.Fatalf("unexpected status %#v", status)
+	}
+}
+
+func TestGenerateAcceptsModeOverrideAndRejectsInvalidMode(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	runner := generate.NewRunner(store, apiSearcher{}, apiLLM{})
+	router := httpapi.NewRouterWithMode(store, runner, "secret", storeWorkspace(store), time.Now(), reportmode.Balanced)
+	today := time.Now().Format("2006-01-02")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"date":"`+today+`","mode":"research"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("generate status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("generate json: %v", err)
+	}
+	if body.Mode != "research" {
+		t.Fatalf("mode=%q, want research", body.Mode)
+	}
+
+	badReq := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"mode":"bad"}`))
+	badReq.Header.Set("Authorization", "Bearer secret")
+	badResp := httptest.NewRecorder()
+	router.ServeHTTP(badResp, badReq)
+	if badResp.Code != http.StatusBadRequest || !strings.Contains(badResp.Body.String(), "balanced, research") {
+		t.Fatalf("bad mode status=%d body=%s", badResp.Code, badResp.Body.String())
+	}
+}
+
+func TestRerunAcceptsModeOverride(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	runner := generate.NewRunner(store, apiSearcher{}, apiLLM{})
+	router := httpapi.NewRouterWithMode(store, runner, "secret", storeWorkspace(store), time.Now(), reportmode.Balanced)
+	today := time.Now().Format("2006-01-02")
+
+	generateReq := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"date":"`+today+`"}`))
+	generateReq.Header.Set("Authorization", "Bearer secret")
+	generateResp := httptest.NewRecorder()
+	router.ServeHTTP(generateResp, generateReq)
+	if generateResp.Code != http.StatusOK {
+		t.Fatalf("generate status=%d body=%s", generateResp.Code, generateResp.Body.String())
+	}
+
+	rerunReq := httptest.NewRequest(http.MethodPost, "/api/generate/rerun", strings.NewReader(`{"mode":"research"}`))
+	rerunReq.Header.Set("Authorization", "Bearer secret")
+	rerunResp := httptest.NewRecorder()
+	router.ServeHTTP(rerunResp, rerunReq)
+	if rerunResp.Code != http.StatusOK {
+		t.Fatalf("rerun status=%d body=%s", rerunResp.Code, rerunResp.Body.String())
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(rerunResp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("rerun json: %v", err)
+	}
+	if body.Mode != "research" {
+		t.Fatalf("mode=%q, want research", body.Mode)
 	}
 }
 

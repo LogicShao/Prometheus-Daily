@@ -27,7 +27,7 @@ func main() {
 	searchHTTPClient := &http.Client{Timeout: 30 * time.Second}
 	llmHTTPClient := &http.Client{Timeout: 2 * time.Minute}
 	store := daily.NewStore(cfg.Workspace)
-	searcher := search.NewService(
+	searcher := search.NewServiceWithHistory(
 		[]search.Provider{
 			search.NewRSSProvider(searchHTTPClient, defaultFeeds()),
 			search.NewZhipuProvider(cfg.ZhipuKey, cfg.ZhipuSearchURL, searchHTTPClient),
@@ -35,6 +35,7 @@ func main() {
 		[]search.Provider{
 			search.NewTavilyProvider(cfg.TavilyKey, searchHTTPClient),
 		},
+		store,
 	)
 
 	prompt, err := generate.LoadPrompt(filepath.Join(cfg.Workspace, "prompt.md"))
@@ -42,8 +43,8 @@ func main() {
 		log.Fatal(err)
 	}
 	llmClient := llm.NewDeepSeekClient(cfg.DeepSeekKey, cfg.DeepSeekURL, cfg.DeepSeekModel, prompt, llmHTTPClient)
-	runner := generate.NewRunner(store, searcher, llmClient)
-	router := httpapi.NewRouter(store, runner, cfg.AdminToken, cfg.Workspace, time.Now())
+	runner := generate.NewRunnerWithMode(store, searcher, llmClient, cfg.ReportMode)
+	router := httpapi.NewRouterWithMode(store, runner, cfg.AdminToken, cfg.Workspace, time.Now(), cfg.ReportMode)
 	if cfg.ScheduleDaily != "" {
 		at, err := scheduler.ParseTimeOfDay(cfg.ScheduleDaily)
 		if err != nil {

@@ -45,7 +45,7 @@ func TestRSSProviderSearch(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("len=%d, want 1", len(results))
 	}
-	if results[0].Title != "AI News" || results[0].URL == "" {
+	if results[0].Title != "AI News" || results[0].URL == "" || results[0].Provider != "rss" || results[0].Source != "Test" {
 		t.Fatalf("unexpected result %#v", results[0])
 	}
 }

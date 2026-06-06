@@ -9,15 +9,19 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"m-daily-news/internal/reportmode"
 )
 
 type Result struct {
-	Title       string
-	URL         string
-	Snippet     string
-	Source      string
-	Category    string
-	PublishedAt time.Time
+	Title          string
+	URL            string
+	Snippet        string
+	Source         string
+	Provider       string
+	Category       string
+	PublishedAt    time.Time
+	HistoryPenalty int
 }
 
 type Options struct {
@@ -33,6 +37,11 @@ type Provider interface {
 type Service struct {
 	primary  []Provider
 	fallback []Provider
+	history  HistoryProvider
+}
+
+type HistoryProvider interface {
+	RecentReports(beforeDate string, limit int) ([]string, error)
 }
 
 var ErrNoResults = errors.New("no search results")
@@ -54,30 +63,51 @@ func NewService(primary []Provider, fallback []Provider) *Service {
 	return &Service{primary: primary, fallback: fallback}
 }
 
+func NewServiceWithHistory(primary []Provider, fallback []Provider, history HistoryProvider) *Service {
+	return &Service{primary: primary, fallback: fallback, history: history}
+}
+
 func (s *Service) SearchDailySources(ctx context.Context, date string) ([]Result, error) {
+	return s.SearchDailySourcesWithMode(ctx, date, reportmode.Balanced)
+}
+
+func (s *Service) SearchDailySourcesWithMode(ctx context.Context, date string, mode reportmode.Mode) ([]Result, error) {
+	mode = reportmode.Default(mode)
 	start := time.Now()
 	since := time.Now().Add(-7 * 24 * time.Hour)
 	opts := Options{MaxResults: 5, Since: since}
 	queries := dailyQuerySpecs()
 
-	slog.Info("daily source search started", "date", date, "primary_providers", len(s.primary), "fallback_providers", len(s.fallback), "queries", len(queries))
+	slog.Info("daily source search started", "date", date, "report_mode", mode, "primary_providers", len(s.primary), "fallback_providers", len(s.fallback), "queries", len(queries))
 	results, errs := searchProviders(ctx, s.primary, queries, opts)
 	if shouldSearchFallback(results) && len(s.fallback) > 0 {
-		slog.Info("daily source fallback search started", "date", date, "results_before_fallback", len(results))
+		slog.Info("daily source fallback search started", "date", date, "report_mode", mode, "results_before_fallback", len(results))
 		fallback, fallbackErrs := searchProviders(ctx, s.fallback, queries, opts)
 		results = append(results, fallback...)
 		errs = append(errs, fallbackErrs...)
 	}
 
 	results = dedupe(results)
-	results = sortResults(results)
-	results = selectBalancedResults(results, 2, 5, 20)
+	history, historyErr := s.historyTexts(date, 7)
+	if historyErr != nil {
+		slog.Warn("daily source history load failed", "date", date, "error", historyErr.Error())
+	}
+	results = applyHistoryPenalty(results, history)
+	results = sortResultsWithMode(results, mode)
+	results = selectModeResults(results, mode)
 	if len(results) == 0 {
-		slog.Error("daily source search failed", "date", date, "duration", time.Since(start).String(), "errors", joinErrors(errs))
+		slog.Error("daily source search failed", "date", date, "report_mode", mode, "duration", time.Since(start).String(), "errors", joinErrors(errs))
 		return nil, fmt.Errorf("%w: %s", ErrNoResults, joinErrors(errs))
 	}
-	slog.Info("daily source search completed", "date", date, "results", len(results), "categories", len(uniqueCategories(results)), "duration", time.Since(start).String())
+	slog.Info("daily source search completed", "date", date, "report_mode", mode, "results", len(results), "categories", len(uniqueCategories(results)), "duration", time.Since(start).String())
 	return results, nil
+}
+
+func (s *Service) historyTexts(date string, limit int) ([]string, error) {
+	if s.history == nil {
+		return nil, nil
+	}
+	return s.history.RecentReports(date, limit)
 }
 
 func dailyQuerySpecs() []querySpec {
@@ -127,8 +157,14 @@ func searchProviders(ctx context.Context, providers []Provider, queries []queryS
 func annotateResults(results []Result, providerName, category string) []Result {
 	out := make([]Result, 0, len(results))
 	for _, result := range results {
+		if result.Provider == "" {
+			result.Provider = providerName
+		}
 		if result.Source == "" {
 			result.Source = providerName
+		}
+		if isSearchProvider(providerName) && result.Source == providerName {
+			result.Source = sourceFromURL(result.URL, providerName)
 		}
 		if result.Category == "" {
 			result.Category = category
@@ -191,11 +227,17 @@ func dedupe(results []Result) []Result {
 }
 
 func technicalSignalScore(result Result) int {
+	return technicalSignalScoreWithMode(result, reportmode.Balanced)
+}
+
+func technicalSignalScoreWithMode(result Result, mode reportmode.Mode) int {
+	mode = reportmode.Default(mode)
 	text := strings.ToLower(strings.Join([]string{
 		result.Title,
 		result.Snippet,
 		result.URL,
 		result.Source,
+		result.Provider,
 	}, " "))
 
 	score := 0
@@ -206,6 +248,12 @@ func technicalSignalScore(result Result) int {
 		score += 1
 	case CategoryIndustry:
 		score -= 1
+	}
+	if isArxiv(result) {
+		score += 5
+		if mode == reportmode.Research {
+			score += 4
+		}
 	}
 	if containsAny(text,
 		"github.com", "github.blog/changelog", "arxiv.org", "cve", "security advisory",
@@ -228,6 +276,18 @@ func technicalSignalScore(result Result) int {
 	) {
 		score -= 4
 	}
+	if isSecondarySource(result) {
+		score -= 2
+	}
+	if mode == reportmode.Research {
+		switch result.Category {
+		case CategoryResearch:
+			score += 4
+		case CategoryIndustry:
+			score -= 3
+		}
+	}
+	score -= result.HistoryPenalty
 	return score
 }
 
@@ -259,11 +319,16 @@ func joinErrors(errs []error) string {
 }
 
 func sortResults(results []Result) []Result {
+	return sortResultsWithMode(results, reportmode.Balanced)
+}
+
+func sortResultsWithMode(results []Result, mode reportmode.Mode) []Result {
+	mode = reportmode.Default(mode)
 	out := make([]Result, len(results))
 	copy(out, results)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
-		aScore, bScore := technicalSignalScore(a), technicalSignalScore(b)
+		aScore, bScore := technicalSignalScoreWithMode(a, mode), technicalSignalScoreWithMode(b, mode)
 		if aScore != bScore {
 			return aScore > bScore
 		}
@@ -276,9 +341,31 @@ func sortResults(results []Result) []Result {
 		if a.PublishedAt.IsZero() && !b.PublishedAt.IsZero() {
 			return false
 		}
-		return sourcePriority(a.Source) < sourcePriority(b.Source)
+		return sourcePriority(a) < sourcePriority(b)
 	})
 	return out
+}
+
+func selectModeResults(results []Result, mode reportmode.Mode) []Result {
+	mode = reportmode.Default(mode)
+	switch mode {
+	case reportmode.Research:
+		return selectResearchResults(results, 20)
+	default:
+		return selectBalancedResultsWithResearchFloor(results, 20)
+	}
+}
+
+func selectBalancedResultsWithResearchFloor(results []Result, maxTotal int) []Result {
+	selected := selectBalancedResults(results, 2, 5, maxTotal)
+	return ensureResearchFloor(selected, results, 2, maxTotal)
+}
+
+func selectResearchResults(results []Result, maxTotal int) []Result {
+	selected := selectBalancedResults(results, 4, 8, maxTotal)
+	selected = ensureResearchFloor(selected, results, 5, maxTotal)
+	selected = limitIndustry(selected, 0)
+	return fillToTotal(selected, results, maxTotal)
 }
 
 func selectBalancedResults(results []Result, maxPerDomain, maxPerCategory, maxTotal int) []Result {
@@ -302,8 +389,12 @@ func selectBalancedResults(results []Result, maxPerDomain, maxPerCategory, maxTo
 		if err != nil || u.Host == "" {
 			continue
 		}
-		host := strings.ToLower(u.Host)
-		if hostCount[host] >= maxPerDomain {
+		host := quotaHost(result, u)
+		limit := maxPerDomain
+		if isArxiv(result) && maxPerDomain < 4 {
+			limit = 4
+		}
+		if hostCount[host] >= limit {
 			continue
 		}
 		category := result.Category
@@ -328,6 +419,218 @@ func categoryLimit(category string, maxPerCategory int) int {
 	return maxPerCategory
 }
 
+func ensureResearchFloor(selected, candidates []Result, minResearch, maxTotal int) []Result {
+	if minResearch <= 0 {
+		return selected
+	}
+	out := append([]Result(nil), selected...)
+	for researchCount(out) < minResearch {
+		candidate, ok := nextResearchCandidate(out, candidates)
+		if !ok {
+			break
+		}
+		if len(out) >= maxTotal {
+			replaceIndex := lowestPriorityNonResearchIndex(out)
+			if replaceIndex < 0 {
+				break
+			}
+			out[replaceIndex] = candidate
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return sortResults(out)
+}
+
+func nextResearchCandidate(selected, candidates []Result) (Result, bool) {
+	for _, candidate := range candidates {
+		if candidate.Category != CategoryResearch && !isArxiv(candidate) {
+			continue
+		}
+		if containsResult(selected, candidate) {
+			continue
+		}
+		return candidate, true
+	}
+	return Result{}, false
+}
+
+func lowestPriorityNonResearchIndex(results []Result) int {
+	index := -1
+	score := 0
+	for i, result := range results {
+		if result.Category == CategoryResearch || isArxiv(result) {
+			continue
+		}
+		resultScore := technicalSignalScore(result)
+		if index < 0 || resultScore < score {
+			index = i
+			score = resultScore
+		}
+	}
+	return index
+}
+
+func researchCount(results []Result) int {
+	count := 0
+	for _, result := range results {
+		if result.Category == CategoryResearch || isArxiv(result) {
+			count++
+		}
+	}
+	return count
+}
+
+func limitIndustry(results []Result, maxIndustry int) []Result {
+	out := make([]Result, 0, len(results))
+	count := 0
+	for _, result := range results {
+		if result.Category == CategoryIndustry {
+			if count >= maxIndustry {
+				continue
+			}
+			count++
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func fillToTotal(selected, candidates []Result, maxTotal int) []Result {
+	out := append([]Result(nil), selected...)
+	for _, candidate := range candidates {
+		if len(out) >= maxTotal {
+			break
+		}
+		if candidate.Category == CategoryIndustry {
+			continue
+		}
+		if containsResult(out, candidate) {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return sortResultsWithMode(out, reportmode.Research)
+}
+
+func containsResult(results []Result, candidate Result) bool {
+	key := canonicalURL(candidate.URL)
+	for _, result := range results {
+		if canonicalURL(result.URL) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func quotaHost(result Result, u *url.URL) string {
+	host := strings.ToLower(u.Host)
+	if isArxiv(result) {
+		source := strings.ToLower(result.Source)
+		switch {
+		case strings.Contains(source, "cs.ai"):
+			return host + "/cs.ai"
+		case strings.Contains(source, "cs.cl"):
+			return host + "/cs.cl"
+		}
+	}
+	return host
+}
+
+func isArxiv(result Result) bool {
+	text := strings.ToLower(result.URL + " " + result.Source)
+	return strings.Contains(text, "arxiv.org")
+}
+
+func isSecondarySource(result Result) bool {
+	text := strings.ToLower(result.URL + " " + result.Source)
+	return containsAny(text,
+		"cnblogs.com", "new.qq.com", "tool.lu", "jiqizhixin.com", "36kr.com",
+		"博客园", "腾讯新闻", "在线工具", "转载",
+	)
+}
+
+func applyHistoryPenalty(results []Result, history []string) []Result {
+	if len(history) == 0 {
+		return results
+	}
+	historyText := normalizeHistory(strings.Join(history, "\n"))
+	out := make([]Result, 0, len(results))
+	for _, result := range results {
+		penalty := historyPenalty(result, historyText)
+		if penalty > 0 {
+			result.HistoryPenalty = penalty
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func historyPenalty(result Result, historyText string) int {
+	if historyText == "" {
+		return 0
+	}
+	u := strings.ToLower(canonicalURL(result.URL))
+	if u != "" && strings.Contains(historyText, u) {
+		return 8
+	}
+	tokens := titleTokens(result.Title)
+	if len(tokens) < 2 {
+		return 0
+	}
+	matches := 0
+	for _, token := range tokens {
+		if strings.Contains(historyText, token) {
+			matches++
+		}
+	}
+	if matches >= 3 || matches == len(tokens) {
+		return 4
+	}
+	return 0
+}
+
+func normalizeHistory(raw string) string {
+	return strings.ToLower(strings.Join(strings.Fields(raw), " "))
+}
+
+func titleTokens(title string) []string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r >= '\u4e00' && r <= '\u9fff':
+			b.WriteRune(r)
+		default:
+			b.WriteRune(' ')
+		}
+	}
+	parts := strings.Fields(b.String())
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if isStopToken(part) {
+			continue
+		}
+		tokens = append(tokens, part)
+	}
+	return tokens
+}
+
+func isStopToken(token string) bool {
+	if len(token) <= 2 {
+		return true
+	}
+	switch token {
+	case "the", "and", "for", "with", "from", "into", "about", "agent", "agents", "model", "models", "开源", "发布", "新增", "支持", "日报", "研究":
+		return true
+	default:
+		return false
+	}
+}
+
 func uniqueCategories(results []Result) map[string]struct{} {
 	categories := make(map[string]struct{})
 	for _, result := range results {
@@ -342,7 +645,11 @@ func uniqueCategories(results []Result) map[string]struct{} {
 	return categories
 }
 
-func sourcePriority(source string) int {
+func sourcePriority(result Result) int {
+	source := result.Provider
+	if source == "" {
+		source = result.Source
+	}
 	switch strings.ToLower(source) {
 	case "rss":
 		return 0
@@ -353,6 +660,23 @@ func sourcePriority(source string) int {
 	default:
 		return 3
 	}
+}
+
+func isSearchProvider(source string) bool {
+	switch strings.ToLower(source) {
+	case "zhipu", "tavily":
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceFromURL(raw, fallback string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return fallback
+	}
+	return strings.TrimPrefix(strings.ToLower(u.Host), "www.")
 }
 
 func min(a, b int) int {

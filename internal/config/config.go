@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"os"
+
+	"m-daily-news/internal/reportmode"
 )
 
 type Config struct {
@@ -16,9 +18,14 @@ type Config struct {
 	DeepSeekModel  string
 	ZhipuSearchURL string
 	ScheduleDaily  string
+	ReportMode     reportmode.Mode
 }
 
 func FromEnv() Config {
+	reportMode, err := reportmode.Normalize(os.Getenv("DAILY_REPORT_MODE"))
+	if err != nil {
+		reportMode = ""
+	}
 	return Config{
 		Workspace:      getenv("WORKSPACE", "."),
 		Port:           getenv("PORT", "8080"),
@@ -30,6 +37,7 @@ func FromEnv() Config {
 		DeepSeekModel:  getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
 		ZhipuSearchURL: getenv("ZHIPU_SEARCH_URL", "https://open.bigmodel.cn/api/paas/v4/web_search"),
 		ScheduleDaily:  os.Getenv("SCHEDULE_DAILY"),
+		ReportMode:     reportMode,
 	}
 }
 
@@ -41,6 +49,8 @@ func (c Config) ValidateRuntime() error {
 		return errors.New("DEEPSEEK_API_KEY is required")
 	case c.ZhipuKey == "":
 		return errors.New("ZHIPU_API_KEY is required")
+	case c.ReportMode == "":
+		return errors.New("DAILY_REPORT_MODE must be one of: " + reportmode.AllowedValues())
 	default:
 		return nil
 	}

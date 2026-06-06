@@ -1,6 +1,10 @@
 package generate
 
-import "time"
+import (
+	"time"
+
+	"m-daily-news/internal/reportmode"
+)
 
 type Status struct {
 	Running       bool       `json:"running"`
@@ -22,4 +26,9 @@ type Result struct {
 	File     string `json:"file"`
 	Summary  string `json:"summary"`
 	Attempts int    `json:"attempts"`
+	Mode     string `json:"mode,omitempty"`
+}
+
+type Options struct {
+	Mode reportmode.Mode
 }

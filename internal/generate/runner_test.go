@@ -9,6 +9,7 @@ import (
 
 	"m-daily-news/internal/daily"
 	"m-daily-news/internal/generate"
+	"m-daily-news/internal/reportmode"
 	"m-daily-news/internal/search"
 )
 
@@ -66,6 +67,27 @@ func TestRunnerRerunTodayReplacesExisting(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), rerunSummary) {
 		t.Fatalf("rerun did not replace today's report")
+	}
+}
+
+func TestRunnerPassesModeToModeAwareDependencies(t *testing.T) {
+	store := daily.NewStore(t.TempDir())
+	searcher := &modeAwareSearcher{}
+	llm := &modeAwareLLM{}
+	runner := generate.NewRunnerWithMode(store, searcher, llm, reportmode.Research)
+
+	result, err := runner.Run(context.Background(), todayDate())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Mode != string(reportmode.Research) {
+		t.Fatalf("mode=%q, want research", result.Mode)
+	}
+	if searcher.mode != reportmode.Research {
+		t.Fatalf("search mode=%q, want research", searcher.mode)
+	}
+	if llm.mode != reportmode.Research {
+		t.Fatalf("llm mode=%q, want research", llm.mode)
 	}
 }
 
@@ -218,6 +240,32 @@ func (fakeSearcher) SearchDailySources(context.Context, string) ([]search.Result
 type fakeLLM struct{}
 
 func (fakeLLM) WriteDaily(_ context.Context, date string, _ []search.Result) (string, error) {
+	return generatedMarkdown(date, generatedSummary), nil
+}
+
+type modeAwareSearcher struct {
+	mode reportmode.Mode
+}
+
+func (s *modeAwareSearcher) SearchDailySources(ctx context.Context, date string) ([]search.Result, error) {
+	return s.SearchDailySourcesWithMode(ctx, date, reportmode.Balanced)
+}
+
+func (s *modeAwareSearcher) SearchDailySourcesWithMode(_ context.Context, _ string, mode reportmode.Mode) ([]search.Result, error) {
+	s.mode = mode
+	return []search.Result{{Title: "Source", URL: "https://example.com/source", Snippet: "snippet", Source: "test", Category: search.CategoryResearch}}, nil
+}
+
+type modeAwareLLM struct {
+	mode reportmode.Mode
+}
+
+func (l *modeAwareLLM) WriteDaily(ctx context.Context, date string, results []search.Result) (string, error) {
+	return l.WriteDailyWithMode(ctx, date, reportmode.Balanced, results)
+}
+
+func (l *modeAwareLLM) WriteDailyWithMode(_ context.Context, date string, mode reportmode.Mode, _ []search.Result) (string, error) {
+	l.mode = mode
 	return generatedMarkdown(date, generatedSummary), nil
 }
 

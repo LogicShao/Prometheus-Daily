@@ -77,6 +77,28 @@ func (s *Store) ReadRaw(date string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+func (s *Store) RecentReports(beforeDate string, limit int) ([]string, error) {
+	items, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	reports := make([]string, 0, limit)
+	for _, item := range items {
+		if beforeDate != "" && item.Date >= beforeDate {
+			continue
+		}
+		raw, err := s.ReadRaw(item.Date)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, string(raw))
+		if limit > 0 && len(reports) >= limit {
+			break
+		}
+	}
+	return reports, nil
+}
+
 func (s *Store) Exists(date string) (bool, error) {
 	path, err := s.Path(date)
 	if err != nil {

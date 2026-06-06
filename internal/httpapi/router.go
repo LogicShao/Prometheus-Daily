@@ -7,11 +7,14 @@ import (
 
 	"m-daily-news/internal/daily"
 	"m-daily-news/internal/generate"
+	"m-daily-news/internal/reportmode"
 )
 
 type Generator interface {
 	Run(ctx context.Context, rawDate string) (*generate.Result, error)
+	RunWithOptions(ctx context.Context, rawDate string, opts generate.Options) (*generate.Result, error)
 	RerunToday(ctx context.Context) (*generate.Result, error)
+	RerunTodayWithOptions(ctx context.Context, opts generate.Options) (*generate.Result, error)
 	Status() generate.Status
 }
 
@@ -21,15 +24,21 @@ type Server struct {
 	adminToken string
 	workspace  string
 	startedAt  time.Time
+	reportMode reportmode.Mode
 }
 
 func NewRouter(store *daily.Store, generator Generator, adminToken, workspace string, startedAt time.Time) http.Handler {
+	return NewRouterWithMode(store, generator, adminToken, workspace, startedAt, reportmode.Balanced)
+}
+
+func NewRouterWithMode(store *daily.Store, generator Generator, adminToken, workspace string, startedAt time.Time, mode reportmode.Mode) http.Handler {
 	s := &Server{
 		store:      store,
 		generator:  generator,
 		adminToken: adminToken,
 		workspace:  workspace,
 		startedAt:  startedAt,
+		reportMode: reportmode.Default(mode),
 	}
 
 	mux := http.NewServeMux()

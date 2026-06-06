@@ -4,11 +4,14 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
+
+	"m-daily-news/internal/reportmode"
 )
 
 type indexData struct {
-	Admin bool
-	About bool
+	Admin      bool
+	About      bool
+	ReportMode string
 }
 
 func (s *Server) Index(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +27,13 @@ func (s *Server) AboutIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderIndex(w http.ResponseWriter, data indexData) {
+	if data.ReportMode == "" {
+		mode := s.reportMode
+		if mode == "" {
+			mode = reportmode.Balanced
+		}
+		data.ReportMode = string(mode)
+	}
 	tmplPath := filepath.Join(s.workspace, "templates", "index.html")
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {

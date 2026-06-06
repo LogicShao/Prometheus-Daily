@@ -90,6 +90,31 @@ tags: [AI]
 	}
 }
 
+func TestStoreRecentReportsExcludesDateAndRespectsLimit(t *testing.T) {
+	workspace := t.TempDir()
+	store := daily.NewStore(workspace)
+
+	for _, date := range []string{"2026-05-28", "2026-05-29", "2026-05-30"} {
+		if _, err := store.WriteValidated(date, validMarkdown(date)); err != nil {
+			t.Fatalf("WriteValidated(%s): %v", date, err)
+		}
+	}
+
+	reports, err := store.RecentReports("2026-05-30", 1)
+	if err != nil {
+		t.Fatalf("RecentReports: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("len=%d, want 1", len(reports))
+	}
+	if !strings.Contains(reports[0], "# 日报 2026-05-29") {
+		t.Fatalf("expected most recent previous report, got %q", reports[0])
+	}
+	if strings.Contains(reports[0], "# 日报 2026-05-30") {
+		t.Fatalf("today's report should be excluded")
+	}
+}
+
 func validMarkdown(date string) string {
 	return `---
 date: ` + date + `

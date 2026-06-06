@@ -47,12 +47,14 @@ DEEPSEEK_API_KEY=
 DEEPSEEK_MODEL=deepseek-v4-flash
 ZHIPU_API_KEY=
 TAVILY_API_KEY=
+DAILY_REPORT_MODE=balanced
 SCHEDULE_DAILY=09:00
 WORKSPACE=.
 PORT=8080
 ```
 
 `ADMIN_TOKEN` 用于保护生成接口。不要提交 `.env`。
+`DAILY_REPORT_MODE` 用于设置定时任务和默认手动生成模式，可选 `balanced`（均衡模式）或 `research`（研究优先模式）。手动生成和重跑接口可以在请求体里用 `mode` 临时覆盖。
 
 Docker 部署默认使用 `TZ=Asia/Shanghai`，并在每天 09:00 自动触发日报生成。如果当天日报已存在，调度任务会跳过。
 
@@ -80,6 +82,16 @@ http://localhost:8080
 
 ```bash
 curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -X POST http://localhost:8080/api/generate
+```
+
+研究模式生成日报：
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"research"}' \
   -X POST http://localhost:8080/api/generate
 ```
 
@@ -103,8 +115,8 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 | `GET` | `/api/daily/{date}/raw` | 原始 Markdown |
 | `GET` | `/feed.xml` | RSS 订阅 |
 | `GET` | `/rss.xml` | RSS 订阅别名 |
-| `POST` | `/api/generate` | 生成日报，需要 Bearer token |
-| `POST` | `/api/generate/rerun` | 重新生成今日日报，需要 Bearer token |
+| `POST` | `/api/generate` | 生成日报，需要 Bearer token；请求体可传 `date`、`mode` |
+| `POST` | `/api/generate/rerun` | 重新生成今日日报，需要 Bearer token；请求体可传 `mode` |
 | `GET` | `/api/status` | 生成状态 |
 | `GET` | `/health` | 健康检查 |
 

@@ -114,10 +114,31 @@
     }
 
     .side-actions {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 38px;
       gap: 8px;
       padding: 14px 16px;
       border-bottom: 1px solid var(--line);
+    }
+
+    .mode-select {
+      grid-column: 1 / -1;
+      height: 36px;
+      min-width: 0;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted-strong);
+      background: var(--surface-soft);
+      outline: none;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .mode-select:focus {
+      border-color: rgba(45, 212, 191, .58);
+      box-shadow: 0 0 0 3px rgba(45, 212, 191, .12);
     }
 
     .icon-button,
@@ -643,6 +664,10 @@
     </nav>
     {{if .Admin}}
     <div class="side-actions" id="adminTools">
+      <select class="mode-select" id="reportModeSelect" aria-label="日报模式">
+        <option value="balanced" {{if eq .ReportMode "balanced"}}selected{{end}}>均衡模式</option>
+        <option value="research" {{if eq .ReportMode "research"}}selected{{end}}>研究模式</option>
+      </select>
       <button class="primary-button" id="generateBtn" type="button">
         <i class="icon" data-lucide="sparkles"></i>
         <span>生成今天</span>
@@ -873,7 +898,15 @@
       try {
         const token = await getAdminToken();
         if (!token) return;
-        const res = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+        const mode = document.getElementById("reportModeSelect").value;
+        const res = await fetch(path, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ mode })
+        });
         const data = await res.json();
         if (res.status === 401) sessionStorage.removeItem("adminToken");
         if (!res.ok || !data.success) throw new Error(data.error || "生成失败");

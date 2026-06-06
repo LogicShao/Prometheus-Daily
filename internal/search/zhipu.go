@@ -86,10 +86,11 @@ func (p *ZhipuProvider) Search(ctx context.Context, query string, opts Options) 
 		link := firstNonEmpty(item.Link, item.URL)
 		snippet := firstNonEmpty(item.Content, item.Snippet)
 		results = append(results, Result{
-			Title:   item.Title,
-			URL:     link,
-			Snippet: snippet,
-			Source:  "zhipu",
+			Title:    item.Title,
+			URL:      link,
+			Snippet:  snippet,
+			Source:   sourceFromURL(link, "zhipu"),
+			Provider: "zhipu",
 		})
 	}
 	return results, nil

@@ -77,10 +77,11 @@ func (p *TavilyProvider) Search(ctx context.Context, query string, opts Options)
 	results := make([]Result, 0, len(decoded.Results))
 	for _, item := range decoded.Results {
 		results = append(results, Result{
-			Title:   item.Title,
-			URL:     item.URL,
-			Snippet: item.Content,
-			Source:  "tavily",
+			Title:    item.Title,
+			URL:      item.URL,
+			Snippet:  item.Content,
+			Source:   sourceFromURL(item.URL, "tavily"),
+			Provider: "tavily",
 		})
 	}
 	return results, nil

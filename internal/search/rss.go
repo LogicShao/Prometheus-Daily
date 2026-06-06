@@ -112,6 +112,7 @@ func parseFeed(data []byte, source string, opts Options) []Result {
 			URL:         strings.TrimSpace(item.Link),
 			Snippet:     strings.TrimSpace(stripSpace(item.Description)),
 			Source:      sourceName,
+			Provider:    "rss",
 			PublishedAt: published,
 		})
 	}
@@ -125,6 +126,7 @@ func parseFeed(data []byte, source string, opts Options) []Result {
 			URL:         atomURL(entry.Links),
 			Snippet:     strings.TrimSpace(stripSpace(entry.Summary)),
 			Source:      sourceName,
+			Provider:    "rss",
 			PublishedAt: published,
 		})
 	}

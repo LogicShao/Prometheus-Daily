@@ -41,7 +41,10 @@ func TestZhipuProviderSearch(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("len=%d, want 1", len(results))
 	}
-	if results[0].Title != "Zhipu result" || results[0].URL != "https://example.com/zhipu" || results[0].Source != "zhipu" {
+	if results[0].Title != "Zhipu result" ||
+		results[0].URL != "https://example.com/zhipu" ||
+		results[0].Source != "example.com" ||
+		results[0].Provider != "zhipu" {
 		t.Fatalf("unexpected result %#v", results[0])
 	}
 }
