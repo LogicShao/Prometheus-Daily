@@ -182,6 +182,76 @@ func TestHistoryPenaltyLowersRepeatedResult(t *testing.T) {
 	}
 }
 
+func TestPreferencePenaltyLowersLowPriorityCopilotResult(t *testing.T) {
+	results := []Result{
+		{
+			Title:    "OpenAI API adds batch evaluation controls",
+			URL:      "https://openai.com/news/api-batch-evaluation",
+			Snippet:  "Developer API update for model evaluation.",
+			Category: CategoryProduct,
+		},
+		{
+			Title:    "GitHub Copilot CLI adds unified configuration command",
+			URL:      "https://github.blog/changelog/2026-06-12-github-copilot-cli-configuration",
+			Snippet:  "Developer tool release for Copilot users.",
+			Category: CategoryProduct,
+		},
+	}
+
+	selected := sortResults(applyPreferencePenalty(results, DefaultPreferenceConfig(), nil))
+	if selected[0].URL == "https://github.blog/changelog/2026-06-12-github-copilot-cli-configuration" {
+		t.Fatalf("low-priority Copilot result ranked first: %#v", selected)
+	}
+	if selected[1].PreferencePenalty == 0 {
+		t.Fatalf("expected preference penalty: %#v", selected)
+	}
+}
+
+func TestPreferencePenaltyKeepsHighValueCopilotEventCompetitive(t *testing.T) {
+	results := applyPreferencePenalty([]Result{
+		{
+			Title:    "GitHub Copilot CLI adds unified configuration command",
+			URL:      "https://github.blog/changelog/2026-06-12-github-copilot-cli-configuration",
+			Snippet:  "Developer tool release for Copilot users.",
+			Category: CategoryProduct,
+		},
+		{
+			Title:    "GitHub Copilot token leak vulnerability affects enterprise users",
+			URL:      "https://github.blog/changelog/2026-06-12-github-copilot-token-leak-vulnerability",
+			Snippet:  "Security advisory describes a credential leak and mitigation.",
+			Category: CategorySecurity,
+		},
+	}, DefaultPreferenceConfig(), nil)
+
+	if results[1].PreferencePenalty >= results[0].PreferencePenalty {
+		t.Fatalf("high-value event should receive a smaller penalty: %#v", results)
+	}
+
+	selected := sortResults(results)
+	if selected[0].Category != CategorySecurity {
+		t.Fatalf("high-value security event should stay competitive: %#v", selected)
+	}
+}
+
+func TestPreferencePenaltyAddsFatigueForRepeatedLowPriorityTheme(t *testing.T) {
+	results := applyPreferencePenalty([]Result{{
+		Title:    "GitHub Copilot Chat adds a small editor setting",
+		URL:      "https://github.blog/changelog/2026-06-12-github-copilot-chat-editor-setting",
+		Snippet:  "Small Copilot product update.",
+		Category: CategoryProduct,
+	}}, DefaultPreferenceConfig(), []string{
+		"Yesterday GitHub Copilot CLI added a configuration command.",
+		"Earlier GitHub Copilot Chat changed an editor setting.",
+	})
+
+	if len(results) != 1 {
+		t.Fatalf("len=%d, want 1", len(results))
+	}
+	if results[0].PreferencePenalty <= lowPriorityPenalty {
+		t.Fatalf("expected fatigue penalty above base penalty: %#v", results[0])
+	}
+}
+
 func BenchmarkSearchDedupeSortAndBalance(b *testing.B) {
 	results := make([]Result, 0, 500)
 	categories := []string{CategoryResearch, CategoryProduct, CategoryOpenSource, CategorySecurity, CategoryIndustry}

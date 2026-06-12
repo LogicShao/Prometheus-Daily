@@ -50,6 +50,10 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 ZHIPU_API_KEY=
 TAVILY_API_KEY=
 DAILY_REPORT_MODE=balanced
+DAILY_LOW_PRIORITY_KEYWORDS=
+DAILY_LOW_PRIORITY_URLS=
+DAILY_LOW_PRIORITY_DOMAINS=
+DAILY_HIGH_VALUE_KEYWORDS=
 SCHEDULE_DAILY=09:00
 WORKSPACE=.
 PORT=8080
@@ -57,6 +61,7 @@ PORT=8080
 
 `ADMIN_TOKEN` 用于保护生成接口。不要提交 `.env`。
 `DAILY_REPORT_MODE` 用于设置定时任务和默认手动生成模式，可选 `balanced`（均衡模式）或 `research`（研究优先模式）。手动生成和重跑接口可以在请求体里用 `mode` 临时覆盖。
+`DAILY_LOW_PRIORITY_KEYWORDS`、`DAILY_LOW_PRIORITY_URLS`、`DAILY_LOW_PRIORITY_DOMAINS` 用于追加低优先级主题偏好，命中后只会在排序阶段降权，不会删除候选。`DAILY_HIGH_VALUE_KEYWORDS` 用于追加高价值信号，命中后会降低低优先级惩罚。多个值用英文逗号或分号分隔。
 `VERSION` 是项目版本的单一来源。服务生成或重跑日报时会在 frontmatter 中自动注入 `app_version`，用于核对日报由哪个项目版本生成；旧日报没有该字段仍可读取。
 
 Docker 部署默认使用 `TZ=Asia/Shanghai`，并在每天 09:00 自动触发日报生成。如果当天日报已存在，调度任务会跳过。

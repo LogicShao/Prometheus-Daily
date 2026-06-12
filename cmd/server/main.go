@@ -27,7 +27,13 @@ func main() {
 	searchHTTPClient := &http.Client{Timeout: 30 * time.Second}
 	llmHTTPClient := &http.Client{Timeout: 2 * time.Minute}
 	store := daily.NewStore(cfg.Workspace)
-	searcher := search.NewServiceWithHistory(
+	searchPreferences := search.DefaultPreferenceConfig().Merge(search.PreferenceConfig{
+		LowPriorityKeywords:      cfg.LowPriorityKeywords,
+		LowPriorityURLSubstrings: cfg.LowPriorityURLSubstrings,
+		LowPriorityDomains:       cfg.LowPriorityDomains,
+		HighValueKeywords:        cfg.HighValueKeywords,
+	})
+	searcher := search.NewServiceWithHistoryAndPreferences(
 		[]search.Provider{
 			search.NewRSSProvider(searchHTTPClient, defaultFeeds()),
 			search.NewZhipuProvider(cfg.ZhipuKey, cfg.ZhipuSearchURL, searchHTTPClient),
@@ -36,6 +42,7 @@ func main() {
 			search.NewTavilyProvider(cfg.TavilyKey, searchHTTPClient),
 		},
 		store,
+		searchPreferences,
 	)
 
 	prompt, err := generate.LoadPrompt(filepath.Join(cfg.Workspace, "prompt.md"))

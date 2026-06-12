@@ -14,14 +14,15 @@ import (
 )
 
 type Result struct {
-	Title          string
-	URL            string
-	Snippet        string
-	Source         string
-	Provider       string
-	Category       string
-	PublishedAt    time.Time
-	HistoryPenalty int
+	Title             string
+	URL               string
+	Snippet           string
+	Source            string
+	Provider          string
+	Category          string
+	PublishedAt       time.Time
+	HistoryPenalty    int
+	PreferencePenalty int
 }
 
 type Options struct {
@@ -35,9 +36,10 @@ type Provider interface {
 }
 
 type Service struct {
-	primary  []Provider
-	fallback []Provider
-	history  HistoryProvider
+	primary     []Provider
+	fallback    []Provider
+	history     HistoryProvider
+	preferences PreferenceConfig
 }
 
 type HistoryProvider interface {
@@ -60,11 +62,20 @@ type querySpec struct {
 }
 
 func NewService(primary []Provider, fallback []Provider) *Service {
-	return &Service{primary: primary, fallback: fallback}
+	return NewServiceWithHistoryAndPreferences(primary, fallback, nil, DefaultPreferenceConfig())
 }
 
 func NewServiceWithHistory(primary []Provider, fallback []Provider, history HistoryProvider) *Service {
-	return &Service{primary: primary, fallback: fallback, history: history}
+	return NewServiceWithHistoryAndPreferences(primary, fallback, history, DefaultPreferenceConfig())
+}
+
+func NewServiceWithHistoryAndPreferences(primary []Provider, fallback []Provider, history HistoryProvider, preferences PreferenceConfig) *Service {
+	return &Service{
+		primary:     primary,
+		fallback:    fallback,
+		history:     history,
+		preferences: preferences.normalized(),
+	}
 }
 
 func (s *Service) SearchDailySources(ctx context.Context, date string) ([]Result, error) {
@@ -93,6 +104,10 @@ func (s *Service) SearchDailySourcesWithMode(ctx context.Context, date string, m
 		slog.Warn("daily source history load failed", "date", date, "error", historyErr.Error())
 	}
 	results = applyHistoryPenalty(results, history)
+	results = applyPreferencePenalty(results, s.preferences, history)
+	if count := preferencePenaltyCount(results); count > 0 {
+		slog.Info("daily source preferences applied", "date", date, "report_mode", mode, "results", count, "total_penalty", totalPreferencePenalty(results))
+	}
 	results = sortResultsWithMode(results, mode)
 	results = selectModeResults(results, mode)
 	if len(results) == 0 {
@@ -264,7 +279,7 @@ func technicalSignalScoreWithMode(result Result, mode reportmode.Mode) int {
 		score += 3
 	}
 	if containsAny(text,
-		"api", "sdk", "framework", "agent", "llm", "copilot", "developer tool",
+		"api", "sdk", "framework", "agent", "llm", "developer tool",
 		"model", "evaluation", "研究", "评测", "模型", "工具", "框架", "开发者", "代码",
 	) {
 		score += 1
@@ -288,6 +303,7 @@ func technicalSignalScoreWithMode(result Result, mode reportmode.Mode) int {
 		}
 	}
 	score -= result.HistoryPenalty
+	score -= result.PreferencePenalty
 	return score
 }
 
